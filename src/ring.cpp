@@ -7,25 +7,30 @@
 namespace aegisfs {
 
 void Ring::set_members(std::vector<RingNode> members) {
-  // Recompute ring ids from node_id so they are always consistent, and de-duplicate
-  // by node_id (last wins for address updates).
-  std::vector<RingNode> uniq;
-  uniq.reserve(members.size());
+  // De-duplicate physical members by node_id (last wins for address updates).
+  std::vector<RingNode> phys;
   for (auto& m : members) {
-    m.rid = ring_id(m.node_id);
-    auto it = std::find_if(uniq.begin(), uniq.end(),
+    auto it = std::find_if(phys.begin(), phys.end(),
                            [&](const RingNode& n) { return n.node_id == m.node_id; });
-    if (it == uniq.end()) {
-      uniq.push_back(m);
-    } else {
-      *it = m;  // update address
+    if (it == phys.end()) phys.push_back(m);
+    else it->address = m.address;
+  }
+  // Expand each physical node into kVirtualNodesPerNode virtual points on the ring; each vnode keeps
+  // the physical node_id/address but gets a distinct ring id from hashing "node_id#v".
+  std::vector<RingNode> vnodes;
+  vnodes.reserve(phys.size() * kVirtualNodesPerNode);
+  for (const auto& m : phys) {
+    for (int v = 0; v < kVirtualNodesPerNode; ++v) {
+      RingNode vn = m;
+      vn.rid = ring_id(m.node_id + "#" + std::to_string(v));
+      vnodes.push_back(vn);
     }
   }
-  std::sort(uniq.begin(), uniq.end(), [](const RingNode& a, const RingNode& b) {
+  std::sort(vnodes.begin(), vnodes.end(), [](const RingNode& a, const RingNode& b) {
     if (a.rid != b.rid) return a.rid < b.rid;
     return a.node_id < b.node_id;  // stable tie-break on rid collision
   });
-  nodes_ = std::move(uniq);
+  nodes_ = std::move(vnodes);
 }
 
 uint64_t Ring::file_rid(const std::string& filename) const { return ring_id(filename); }

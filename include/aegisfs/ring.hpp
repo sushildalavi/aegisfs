@@ -16,7 +16,12 @@ struct RingNode {
   }
 };
 
-// Consistent-hash ring over the 64-bit identifier space.
+// Number of virtual points each physical node occupies on the ring. More vnodes => smoother key
+// distribution (lower variance) at the cost of a larger sorted ring. 64 keeps 10-node imbalance
+// well within ~2x of ideal (see RingTest.LoadIsReasonablyBalanced).
+inline constexpr int kVirtualNodesPerNode = 64;
+
+// Consistent-hash ring over the 64-bit identifier space, using virtual nodes for balance.
 // Deterministic: given the same member set, every node computes identical placement.
 class Ring {
  public:

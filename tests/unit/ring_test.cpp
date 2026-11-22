@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <map>
 #include <set>
 
 #include "aegisfs/hash.hpp"
@@ -77,6 +78,31 @@ TEST(RingTest, MinimalMovement) {
   }
   // With 6 nodes, roughly 1/6 of primary ownership should move; allow generous slack.
   EXPECT_LT(moved, total / 2);
+}
+
+TEST(RingTest, LoadIsReasonablyBalanced) {
+  // With many nodes and keys, primary ownership should be spread out (no node owns a huge share).
+  Ring r = make_ring({"a","b","c","d","e","f","g","h","i","j"});  // 10 nodes
+  std::map<std::string, int> owns;
+  const int K = 10000;
+  for (int i = 0; i < K; ++i) owns[r.successors("key" + std::to_string(i), 1)[0].node_id]++;
+  ASSERT_EQ(owns.size(), 10u);  // every node owns at least one key
+  int maxo = 0, mino = K;
+  for (auto& [n, c] : owns) { maxo = std::max(maxo, c); mino = std::min(mino, c); }
+  // ideal ~1000 each; allow a wide band but no node should dominate (>3x ideal) or starve.
+  EXPECT_LT(maxo, 3000);
+  EXPECT_GT(mino, 100);
+}
+
+TEST(RingTest, IsReplicaNegative) {
+  Ring r = make_ring({"n1", "n2", "n3", "n4", "n5"});
+  auto reps = r.successors("obj", 3);
+  // a node NOT among the 3 successors is not a replica
+  for (auto& m : r.members()) {
+    bool in = false;
+    for (auto& x : reps) if (x.node_id == m.node_id) in = true;
+    EXPECT_EQ(r.is_replica("obj", m.node_id, 3), in);
+  }
 }
 
 TEST(RingTest, FirstSuccessorMonotone) {
