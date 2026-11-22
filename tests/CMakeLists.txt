@@ -8,6 +8,7 @@ set(AEGISFS_TEST_SRCS
   unit/manifest_test.cpp
   unit/storage_test.cpp
   unit/membership_test.cpp
+  unit/net_test.cpp
   integration/cluster_test.cpp
   integration/replication_test.cpp
   concurrency/concurrency_test.cpp
