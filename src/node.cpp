@@ -149,6 +149,7 @@ void Node::handle_conn(std::shared_ptr<Conn> c) {
   Fields h;
   uint64_t plen = 0;
   if (!is_ok(read_message_head(*c, t, h, plen))) return;
+  Metrics::instance().incr("rpc.accepted");
   switch (t) {
     case MsgType::Create: h_create(*c, h, plen); return;
     case MsgType::Append: h_append(*c, h, plen); return;
@@ -511,6 +512,7 @@ static size_t make_file_source(int& fd_holder, const std::string& path,
 
 void Node::h_create(Conn& c, Fields& h, uint64_t plen) {
   ScopedTimer timer("create");
+  Metrics::instance().incr("op.create");
   std::string filename = h.get_or("file");
   std::string client_id = h.get_or("client_id", "anon");
   std::string op_id = h.get_or("op_id");
@@ -603,6 +605,7 @@ Status Node::authoritative_manifest(const std::string& filename, Manifest& out,
 
 void Node::h_append(Conn& c, Fields& h, uint64_t plen) {
   ScopedTimer timer("append");
+  Metrics::instance().incr("op.append");
   std::string filename = h.get_or("file");
   std::string client_id = h.get_or("client_id", "anon");
   std::string op_id = h.get_or("op_id");
@@ -661,6 +664,7 @@ void Node::h_append(Conn& c, Fields& h, uint64_t plen) {
 
 void Node::h_get(Conn& c, Frame& fr) {
   ScopedTimer timer("get");
+  Metrics::instance().incr("op.get");
   std::string filename = fr.header.get_or("file");
   std::string client_id = fr.header.get_or("client_id", "anon");
   uint64_t required_seq = fr.header.get_u64("required_seq");
@@ -724,6 +728,7 @@ void Node::h_get(Conn& c, Frame& fr) {
 
 void Node::h_merge(Conn& c, Frame& fr) {
   ScopedTimer timer("merge");
+  Metrics::instance().incr("op.merge");
   std::string filename = fr.header.get_or("file");
   std::string file_id = make_file_id(filename);
   // No cross-node lock held during fan-out (would deadlock with replica-side locks). Self-repair
@@ -861,6 +866,16 @@ void Node::maintenance_loop() {
                                     static_cast<uint64_t>(cfg_.reap_ms));
     reconcile_placement();
     anti_entropy();
+    // GC stale staging files left by a coordinator that crashed mid-spool (>60s old).
+    {
+      std::error_code ec;
+      auto now = fs::file_time_type::clock::now();
+      for (auto& e : fs::directory_iterator(storage_->data_dir() + "/tmp", ec)) {
+        auto age = std::chrono::duration_cast<std::chrono::seconds>(
+                       now - fs::last_write_time(e.path(), ec)).count();
+        if (age > 60) fs::remove(e.path(), ec);
+      }
+    }
     (void)failed;
     sleep_ms(cfg_.reconcile_ms);
   }
