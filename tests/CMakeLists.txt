@@ -9,6 +9,7 @@ set(AEGISFS_TEST_SRCS
   unit/storage_test.cpp
   unit/membership_test.cpp
   unit/net_test.cpp
+  unit/common_test.cpp
   unit/metrics_test.cpp
   unit/threadpool_test.cpp
   integration/cluster_test.cpp
