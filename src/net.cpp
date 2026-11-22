@@ -9,12 +9,23 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <csignal>
+
 #include <cerrno>
 #include <charconv>
 #include <cstring>
 #include <vector>
 
 namespace aegisfs {
+
+// Ignore SIGPIPE process-wide: writing to a peer that closed its end must return EPIPE from
+// send(), not kill the process. Installed once at load time.
+namespace {
+struct SigpipeIgnorer {
+  SigpipeIgnorer() { ::signal(SIGPIPE, SIG_IGN); }
+};
+SigpipeIgnorer g_sigpipe_ignorer;
+}  // namespace
 
 bool parse_endpoint(const std::string& s, std::string& host, int& port) {
   auto pos = s.rfind(':');
