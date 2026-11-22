@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 
+#include <map>
+#include <thread>
+#include <vector>
+
 #include "aegisfs/replication.hpp"
 #include "support/cluster_fixture.hpp"
 
@@ -109,4 +113,54 @@ TEST(Replication, MergeMakesReplicasIdentical) {
     if (ref.empty()) ref = sha;
     EXPECT_EQ(sha, ref);
   }
+}
+
+// Appends from several distinct clients all land, and each client's own appends keep their order.
+TEST(Replication, MultiClientAppendsAllPresentOrdered) {
+  Cluster cl(5);
+  ASSERT_TRUE(cl.await_convergence(5));
+  std::string base = make_temp_file("mc_b", 100, 1);
+  std::string ap = make_temp_file("mc_a", 50, 2);
+  Client creator = cl.client(0, "creator");
+  ASSERT_TRUE(creator.create(base, "mc/f").ok());
+
+  const int CLIENTS = 4, PER = 5;
+  std::vector<std::thread> ts;
+  for (int i = 0; i < CLIENTS; ++i)
+    ts.emplace_back([&, i] {
+      Client c(cl.addr(i % cl.size()), "mc" + std::to_string(i));
+      for (int j = 0; j < PER; ++j) c.append(ap, "mc/f");
+    });
+  for (auto& t : ts) t.join();
+
+  Manifest m;
+  auto ls = creator.ls("mc/f");
+  ASSERT_EQ(repl::fetch_manifest(ls.info.get_or("r0_addr"), make_file_id("mc/f"), m), Status::Ok);
+  std::map<std::string, std::vector<uint64_t>> seqs;
+  int appends = 0;
+  for (const auto& s : m.segments)
+    if (s.kind == SegKind::Append) { ++appends; seqs[s.client_id].push_back(s.client_seq); }
+  EXPECT_EQ(appends, CLIENTS * PER);
+  for (auto& [cid, v] : seqs) {
+    // ordered() canonical order must present this client's segments by increasing seq
+    std::vector<uint64_t> in_order;
+    for (const SegmentRef* s : m.ordered())
+      if (s->client_id == cid && s->kind == SegKind::Append) in_order.push_back(s->client_seq);
+    for (size_t k = 1; k < in_order.size(); ++k) EXPECT_LT(in_order[k - 1], in_order[k]) << cid;
+  }
+}
+
+// The client watermark advances as appends are acknowledged (enables read-your-writes).
+TEST(Replication, WatermarkAdvances) {
+  Cluster cl(3);
+  ASSERT_TRUE(cl.await_convergence(3));
+  std::string base = make_temp_file("wm_b", 10, 1);
+  std::string ap = make_temp_file("wm_a", 10, 2);
+  Client c = cl.client(0, "w");
+  ASSERT_TRUE(c.create(base, "wm/f").ok());
+  EXPECT_EQ(c.watermark("wm/f"), 0u);
+  ASSERT_TRUE(c.append(ap, "wm/f").ok());
+  EXPECT_EQ(c.watermark("wm/f"), 1u);
+  ASSERT_TRUE(c.append(ap, "wm/f").ok());
+  EXPECT_EQ(c.watermark("wm/f"), 2u);
 }
