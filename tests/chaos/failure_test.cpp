@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cstring>
+#include <fstream>
 #include <thread>
 
 #include "support/cluster_fixture.hpp"
@@ -109,6 +111,47 @@ TEST(Chaos, RestartNodeRecoversData) {
   auto r = c.get_from_replica(cl.addr(idx), "dur/f", out);
   ASSERT_TRUE(r.ok()) << status_name(r.status);
   EXPECT_EQ(file_sha_hex(in), file_sha_hex(out));
+}
+
+// Corrupting a replica's segment on disk is detected and repaired by anti-entropy.
+TEST(Chaos, AntiEntropyRepairsCorruptSegment) {
+  Cluster cl(5);
+  ASSERT_TRUE(cl.await_convergence(5));
+  std::string in = make_temp_file("ae", 60000, 66);
+  Client c = cl.client(0, "c1");
+  ASSERT_TRUE(c.create(in, "ae/f").ok());
+  std::string in_sha = file_sha_hex(in);
+
+  auto reps = replica_addrs(c, "ae/f");
+  int victim = cl.index_of_addr(reps[0]);
+  ASSERT_GE(victim, 0);
+  std::string seg = cl.root() + "/node" + std::to_string(victim) + "/files/" +
+                    make_file_id("ae/f") + "/base.seg";
+  ASSERT_TRUE(fs::exists(seg));
+
+  // corrupt the segment: flip bytes in the middle
+  {
+    std::fstream f(seg, std::ios::in | std::ios::out | std::ios::binary);
+    f.seekp(100);
+    char junk[64];
+    std::memset(junk, 0xAB, sizeof(junk));
+    f.write(junk, sizeof(junk));
+  }
+  // immediately, a pure replica read should fail the checksum
+  std::string bad = cl.root() + "/ae_bad.bin";
+  auto g0 = c.get_from_replica(reps[0], "ae/f", bad);
+  EXPECT_NE(g0.status, Status::Ok);  // corruption detected
+
+  // anti-entropy should repair it from a healthy peer within a few seconds
+  bool repaired = false;
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(6);
+  while (std::chrono::steady_clock::now() < deadline) {
+    std::string out = cl.root() + "/ae_out.bin";
+    auto g = c.get_from_replica(reps[0], "ae/f", out);
+    if (g.ok() && file_sha_hex(out) == in_sha) { repaired = true; break; }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  EXPECT_TRUE(repaired) << "anti-entropy should restore the corrupt segment";
 }
 
 // A graceful leave hands off the leaving node's replicas; files stay available.
