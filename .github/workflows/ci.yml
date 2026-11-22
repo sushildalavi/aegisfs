@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: ["none", "asan"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang libssl-dev
+
+      - name: Configure
+        run: |
+          EXTRA=""
+          if [ "${{ matrix.sanitizer }}" = "asan" ]; then EXTRA="-DAEGISFS_ENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug"; else EXTRA="-DCMAKE_BUILD_TYPE=RelWithDebInfo"; fi
+          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ $EXTRA
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Unit + integration + concurrency + chaos tests
+        run: ctest --test-dir build --output-on-failure --timeout 180
+
+      - name: Smoke test (process-local 3-node)
+        if: matrix.sanitizer == 'none'
+        run: ./scripts/smoke_test.sh
+
+  tsan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang libssl-dev
+      - name: Configure (TSan)
+        run: cmake -S . -B build-tsan -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DAEGISFS_ENABLE_TSAN=ON
+      - name: Build concurrency + membership tests
+        run: cmake --build build-tsan --target concurrency_test membership_test
+      - name: Run under ThreadSanitizer
+        run: |
+          TSAN_OPTIONS="halt_on_error=1" ./build-tsan/tests/concurrency_test
+          TSAN_OPTIONS="halt_on_error=1" ./build-tsan/tests/membership_test
