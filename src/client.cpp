@@ -157,6 +157,7 @@ OpResult Client::liststore() { return simple_request(entry_, MsgType::ListStore,
 OpResult Client::list_mem_ids() { return simple_request(entry_, MsgType::ListMemIds, {}); }
 OpResult Client::status() { return simple_request(entry_, MsgType::Status_, {}); }
 OpResult Client::health() { return simple_request(entry_, MsgType::Health, {}); }
+OpResult Client::leave() { return simple_request(entry_, MsgType::Leave, {}); }
 
 uint64_t Client::watermark(const std::string& name) const {
   auto it = watermark_.find(name);

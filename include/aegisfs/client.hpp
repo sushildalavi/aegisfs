@@ -34,6 +34,7 @@ class Client {
   OpResult list_mem_ids();
   OpResult status();
   OpResult health();
+  OpResult leave();  // ask the entry node to gracefully leave the cluster
   // Fetch one replica's exact view (no read-repair) into a local file.
   OpResult get_from_replica(const std::string& replica_addr, const std::string& name,
                             const std::string& local_path);
