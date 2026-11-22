@@ -38,3 +38,6 @@ benchmarks/_tmp/
 *.pem
 *.key
 id_rsa*
+
+# Benchmark cluster runtime
+run-bench/
