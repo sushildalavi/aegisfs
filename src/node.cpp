@@ -336,17 +336,25 @@ void Node::h_liststore(Conn& c) {
 
 void Node::h_ls(Conn& c, Frame& fr) {
   std::string filename = fr.header.get_or("file");
+  std::string file_id = make_file_id(filename);
   auto reps = replicas_for(filename);
   Fields h;
   h.set_i64("status", static_cast<int64_t>(Status::Ok));
   h.set("file", filename);
-  h.set("file_id", make_file_id(filename));
+  h.set("file_id", file_id);
   h.set_i64("replicas", static_cast<int64_t>(reps.size()));
+  int present = 0;
   for (size_t i = 0; i < reps.size(); ++i) {
     std::string pfx = "r" + std::to_string(i) + "_";
     h.set(pfx + "node", reps[i].node_id);
     h.set(pfx + "addr", reps[i].address);
+    // verified presence: does this intended replica actually hold the manifest right now?
+    Manifest m;
+    bool has = is_ok(repl::fetch_manifest(reps[i].address, file_id, m));
+    h.set(pfx + "present", has ? "yes" : "no");
+    if (has) ++present;
   }
+  h.set_i64("present_count", present);
   write_frame(c, MsgType::Reply, h, "");
 }
 
