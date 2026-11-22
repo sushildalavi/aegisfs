@@ -1,0 +1,84 @@
+# 10-node AegisFS cluster via Docker Compose. Each node has its own persistent volume, network
+# endpoint, identity, and logs. node0 is the bootstrap seed; the rest join via it.
+#
+# NOTE: Docker is not installed on the original dev host, so this file is provided for portability
+# but is marked NOT RUN in FINAL_REPORT.md. The equivalent process-local cluster (verified) is:
+#   scripts/cluster.sh start 10
+#
+# On a Docker host:
+#   docker compose build && docker compose up -d
+#   docker compose exec node0 aegisfs --entry node0:9100 list_mem_ids
+name: aegisfs
+
+x-node: &node
+  build: .
+  restart: unless-stopped
+  networks: [aegis]
+
+services:
+  node0:
+    <<: *node
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node0"]
+    ports: ["9100:9100"]
+    volumes: ["node0-data:/data"]
+  node1: &joiner
+    <<: *node
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node1", "--seeds", "node0:9100"]
+    ports: ["9101:9100"]
+    volumes: ["node1-data:/data"]
+    depends_on: [node0]
+  node2:
+    <<: *joiner
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node2", "--seeds", "node0:9100"]
+    ports: ["9102:9100"]
+    volumes: ["node2-data:/data"]
+  node3:
+    <<: *joiner
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node3", "--seeds", "node0:9100"]
+    ports: ["9103:9100"]
+    volumes: ["node3-data:/data"]
+  node4:
+    <<: *joiner
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node4", "--seeds", "node0:9100"]
+    ports: ["9104:9100"]
+    volumes: ["node4-data:/data"]
+  node5:
+    <<: *joiner
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node5", "--seeds", "node0:9100"]
+    ports: ["9105:9100"]
+    volumes: ["node5-data:/data"]
+  node6:
+    <<: *joiner
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node6", "--seeds", "node0:9100"]
+    ports: ["9106:9100"]
+    volumes: ["node6-data:/data"]
+  node7:
+    <<: *joiner
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node7", "--seeds", "node0:9100"]
+    ports: ["9107:9100"]
+    volumes: ["node7-data:/data"]
+  node8:
+    <<: *joiner
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node8", "--seeds", "node0:9100"]
+    ports: ["9108:9100"]
+    volumes: ["node8-data:/data"]
+  node9:
+    <<: *joiner
+    command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node9", "--seeds", "node0:9100"]
+    ports: ["9109:9100"]
+    volumes: ["node9-data:/data"]
+
+networks:
+  aegis: {}
+
+volumes:
+  node0-data: {}
+  node1-data: {}
+  node2-data: {}
+  node3-data: {}
+  node4-data: {}
+  node5-data: {}
+  node6-data: {}
+  node7-data: {}
+  node8-data: {}
+  node9-data: {}
