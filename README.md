@@ -1,5 +1,9 @@
 # AegisFS
 
+[![ci](https://github.com/sushildalavi/aegisfs/actions/workflows/ci.yml/badge.svg)](https://github.com/sushildalavi/aegisfs/actions/workflows/ci.yml)
+![language](https://img.shields.io/badge/C%2B%2B-20-blue)
+![license](https://img.shields.io/badge/license-MIT-green)
+
 **AegisFS** is an original, fault-tolerant **distributed file system** written from scratch in
 **C++20**. It combines HDFS-style replicated storage with Cassandra-style consistent-hash placement
 and SWIM-style gossip membership, and exposes a HyDFS-compatible command set. Any node can serve
@@ -91,8 +95,9 @@ Exit codes are nonzero on failure so scripts can detect real success/failure.
 - Routing is **O(log N)** (binary search on the ring), not O(1). See `docs/TRADEOFFS.md`.
 
 ## Testing
-- 33 unit tests + integration (3/5/10-node, 64 MiB streaming), concurrency, and chaos
-  (2-node kill, re-replication, restart recovery, join) — **53 tests**, all passing.
+- Unit + integration (3/5/10-node, 64 MiB streaming) + concurrency + chaos (2-node kill,
+  re-replication, restart recovery, join, graceful leave, anti-entropy repair) + stress —
+  **85+ tests**, all passing.
 - `scripts/smoke_test.sh` — 3-node end-to-end. `scripts/demo.sh` — 10-node demo with fault
   injection (asserts, exits nonzero on failure).
 - Clean under **AddressSanitizer/UBSan**; concurrent paths clean under **ThreadSanitizer**.
