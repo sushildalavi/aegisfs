@@ -54,6 +54,9 @@ class Node {
 
   // Manual trigger (used by tests / on membership change).
   void reconcile_placement();
+  // Pull-based repair: for files this node replicates, pull ops present on peer replicas but
+  // missing locally, and re-fetch any locally corrupt/missing segment from a healthy peer.
+  void anti_entropy();
 
  private:
   void accept_loop();

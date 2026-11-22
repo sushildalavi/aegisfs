@@ -852,8 +852,84 @@ void Node::maintenance_loop() {
     auto failed = membership_->tick(static_cast<uint64_t>(cfg_.suspect_ms),
                                     static_cast<uint64_t>(cfg_.reap_ms));
     reconcile_placement();
+    anti_entropy();
     (void)failed;
     sleep_ms(cfg_.reconcile_ms);
+  }
+}
+
+void Node::anti_entropy() {
+  if (!storage_) return;
+  auto manifests = storage_->list_manifests();
+  for (auto& m : manifests) {
+    auto reps = replicas_for(m.filename);
+    bool self_replica = false;
+    for (const auto& r : reps)
+      if (r.node_id == membership_->self_id()) self_replica = true;
+    if (!self_replica) continue;  // push/handoff path owns non-replica files
+
+    // 1) detect locally corrupt/missing segments (checksum mismatch) that need re-fetch.
+    std::vector<SegmentRef> need = {};
+    for (const auto& seg : m.segments) {
+      Sha256Stream hsh;
+      bool ok = is_ok(storage_->read_segment_stream(
+          m.file_id, seg.disk_name, [&](const char* b, size_t n) { hsh.update(b, n); return true; }));
+      if (!ok || hsh.finalize() != seg.sha) need.push_back(seg);
+    }
+
+    // 2) learn ops present on peer replicas but missing locally.
+    for (const auto& r : reps) {
+      if (r.node_id == membership_->self_id()) continue;
+      Manifest pm;
+      if (!is_ok(repl::fetch_manifest(r.address, m.file_id, pm))) continue;
+      for (const auto& seg : pm.segments)
+        if (!m.has_op(seg.op_id)) need.push_back(seg);
+    }
+    if (need.empty()) continue;
+
+    // 3) pull each needed segment from a peer replica that has a good copy, apply locally.
+    for (const auto& seg : need) {
+      std::string src;
+      for (const auto& r : reps) {
+        if (r.node_id == membership_->self_id()) continue;
+        Manifest pm;
+        if (is_ok(repl::fetch_manifest(r.address, m.file_id, pm)) && pm.has_op(seg.op_id)) {
+          src = r.address;
+          break;
+        }
+      }
+      if (src.empty()) continue;
+      std::string tmp = storage_->data_dir() + "/tmp/ae." + random_hex(8);
+      int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+      if (fd < 0) continue;
+      Status fs = repl::fetch_segment(src, m.file_id, seg.disk_name, [&](const char* b, size_t n) {
+        ssize_t w = ::write(fd, b, n);
+        return w == static_cast<ssize_t>(n);
+      });
+      ::fsync(fd);
+      ::close(fd);
+      if (is_ok(fs)) {
+        if (m.has_op(seg.op_id)) {
+          // corrupt-segment repair: overwrite the bytes in place (manifest already has the op)
+          std::string bytes;
+          int rfd = ::open(tmp.c_str(), O_RDONLY);
+          if (rfd >= 0) {
+            char buf[65536]; ssize_t n;
+            while ((n = ::read(rfd, buf, sizeof(buf))) > 0) bytes.append(buf, static_cast<size_t>(n));
+            ::close(rfd);
+            auto lk = file_lock(m.file_id);
+            std::lock_guard<std::mutex> g(*lk);
+            if (is_ok(storage_->put_segment(m.file_id, seg.disk_name, bytes, seg.sha)))
+              Metrics::instance().incr("anti_entropy_repair");
+          }
+        } else {
+          // missing op: apply as a new segment
+          if (is_ok(apply_local_locked(m.file_id, m.filename, m.create_op_id, seg, tmp)))
+            Metrics::instance().incr("anti_entropy_repair");
+        }
+      }
+      fs::remove(tmp);
+    }
   }
 }
 
