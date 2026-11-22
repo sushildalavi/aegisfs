@@ -111,6 +111,34 @@ TEST(Chaos, RestartNodeRecoversData) {
   EXPECT_EQ(file_sha_hex(in), file_sha_hex(out));
 }
 
+// A graceful leave hands off the leaving node's replicas; files stay available.
+TEST(Chaos, GracefulLeaveHandsOffData) {
+  Cluster cl(5);
+  ASSERT_TRUE(cl.await_convergence(5));
+  std::string in = make_temp_file("gl", 40000, 55);
+  Client c = cl.client(0, "c1");
+  for (int i = 0; i < 4; ++i) ASSERT_TRUE(c.create(in, "lv/f" + std::to_string(i)).ok());
+
+  // pick a replica of lv/f0 and ask it to leave gracefully
+  auto reps = replica_addrs(c, "lv/f0");
+  int leaver = cl.index_of_addr(reps[0]);
+  ASSERT_GE(leaver, 0);
+  Client lc(cl.addr(leaver), "lc");
+  ASSERT_TRUE(lc.leave().ok());
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));  // let handoff + gossip settle
+
+  // all files still readable and correct from a non-leaver entry
+  int entry = (leaver + 1) % static_cast<int>(cl.size());
+  Client r(cl.addr(entry), "r");
+  std::string in_sha = file_sha_hex(in);
+  for (int i = 0; i < 4; ++i) {
+    std::string out = cl.root() + "/gl_" + std::to_string(i) + ".bin";
+    auto g = r.get("lv/f" + std::to_string(i), out);
+    ASSERT_TRUE(g.ok()) << status_name(g.status);
+    EXPECT_EQ(file_sha_hex(out), in_sha);
+  }
+}
+
 // Joining a new node keeps the file available (safe handoff; no transient unavailability).
 TEST(Chaos, JoinKeepsFilesAvailable) {
   Cluster cl(4);
