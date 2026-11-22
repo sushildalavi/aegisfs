@@ -12,6 +12,7 @@ set(AEGISFS_TEST_SRCS
   integration/cluster_test.cpp
   integration/replication_test.cpp
   concurrency/concurrency_test.cpp
+  concurrency/stress_test.cpp
   chaos/failure_test.cpp
 )
 
