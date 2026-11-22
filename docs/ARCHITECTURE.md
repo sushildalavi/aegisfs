@@ -123,7 +123,55 @@ Frame = `MAGIC(4) | VERSION(2) | TYPE(2) | HEADER_LEN(4) | HEADER | PAYLOAD_LEN(
 - Per-file locking (`shared_mutex` keyed by file_id) — **no global cluster lock**. Manifest commits
   are atomic; concurrent appends to the same file are serialized only at that file's granularity.
 
-## 10. Failure / consistency model (explicit)
+## 10. Diagrams
+
+### Replica placement on the ring
+```mermaid
+graph LR
+  subgraph Ring[64-bit ring]
+    A[node A] --> B[node B] --> C[node C] --> D[node D] --> E[node E] --> A
+  end
+  F["ring_id(file)"] -.->|first successor| C
+  C -->|replica 1| C
+  C -->|replica 2| D
+  C -->|replica 3| E
+```
+
+### Write path (create/append)
+```mermaid
+sequenceDiagram
+  participant Cl as Client
+  participant Co as Coordinator (any node)
+  participant R1 as Replica 1 (primary)
+  participant R2 as Replica 2
+  participant R3 as Replica 3
+  Cl->>Co: CREATE/APPEND (streamed bytes)
+  Co->>Co: spool to tmp, SHA-256, assign op_id + lamport
+  Co->>R1: REPLICATE (primary first; create arbitrates here)
+  R1-->>Co: OK / ALREADY_EXISTS
+  par fan-out (parallel or sequential)
+    Co->>R2: REPLICATE
+    Co->>R3: REPLICATE
+  end
+  R2-->>Co: OK
+  R3-->>Co: OK
+  Co-->>Cl: OK (all 3) / DEGRADED (<3)
+```
+
+### Membership state machine (per peer)
+```mermaid
+stateDiagram-v2
+  [*] --> ALIVE
+  ALIVE --> SUSPECT: probe fails
+  SUSPECT --> ALIVE: probe ok / higher incarnation
+  SUSPECT --> FAILED: suspect timeout
+  ALIVE --> LEFT: graceful leave
+  FAILED --> ALIVE: rejoin with higher incarnation
+  FAILED --> [*]: reaped after tombstone TTL
+  LEFT --> [*]: reaped after tombstone TTL
+```
+
+## 11. Failure / consistency model (explicit)
 
 - **Guarantee:** a file with 3 healthy, durable replicas remains readable after ≤2 node failures.
 - **Not guaranteed:** availability during partitions that leave <1 reachable replica, or durability of
