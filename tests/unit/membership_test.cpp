@@ -60,3 +60,22 @@ TEST(MembershipTest, SerializeRoundTrip) {
   ASSERT_TRUE(Membership::parse(buf, out));
   EXPECT_EQ(out.size(), 2u);
 }
+
+TEST(MembershipTest, LeftExcludedFromRingNodes) {
+  Membership m("self", "a:1");
+  m.merge({{"n2", "b:2", 1, MemberState::Alive, 0}});
+  m.merge({{"n3", "c:3", 1, MemberState::Alive, 0}});
+  m.mark_left("n2");
+  auto rn = m.ring_nodes();  // only ALIVE should appear
+  for (const auto& n : rn) EXPECT_NE(n.node_id, "n2");
+  EXPECT_FALSE(m.is_alive("n2"));
+}
+
+TEST(MembershipTest, ReapRemovesTombstone) {
+  Membership m("self", "a:1");
+  m.merge({{"n2", "b:2", 1, MemberState::Failed, 0}});
+  // reap with 0ms TTL should drop the failed tombstone
+  m.tick(/*suspect_ms=*/100000, /*reap_ms=*/0);
+  Member out;
+  EXPECT_FALSE(m.lookup("n2", out));
+}
