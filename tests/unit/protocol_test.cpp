@@ -55,3 +55,13 @@ TEST(ProtocolTest, EndianEncoders) {
   EXPECT_EQ(get_u32(p + 2), 0x01020304u);
   EXPECT_EQ(get_u64(p + 6), 0x0102030405060708ULL);
 }
+
+TEST(ProtocolTest, FieldsOverwriteKeepsLast) {
+  Fields f;
+  f.set("k", "first");
+  f.set("k", "second");
+  std::string buf; f.serialize(buf);
+  Fields g;
+  ASSERT_TRUE(Fields::parse(reinterpret_cast<const uint8_t*>(buf.data()), buf.size(), g));
+  EXPECT_EQ(g.get_or("k"), "second");
+}
