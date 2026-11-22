@@ -23,5 +23,14 @@ environment feature (e.g. Docker) absent on the build host; those run process-lo
 | I16 | Incarnation numbers prevent a stale gossip message from resurrecting a failed node. | `membership_test.IncarnationRefute` |
 | I17 | 100+ MiB files transfer without loading the whole file into RAM (bounded chunking). | `integration: large_file_streaming` |
 | I18 | Filenames are normalized/validated; path traversal (`../`) is rejected. | `storage_test.PathValidation` |
-| I19 | Concurrent appends to one file produce no torn manifest / duplicated segment. | `concurrency: multiappend_no_dup` |
-| I20 | `getfromreplica` has no read-repair / merge side effects. | `integration: getfromreplica_pure` |
+| I19 | Concurrent appends to one file produce no torn manifest / duplicated segment. | `Concurrency.ConcurrentAppendsNoDuplicateOrTornManifest` |
+| I20 | `getfromreplica` has no read-repair / merge side effects. | `Integration.GetFromReplicaPurityAndAgreement` |
+| I21 | Concurrent creates of the same name: exactly one wins (primary-arbitrated). | `Concurrency.SimultaneousCreateExactlyOneWins` |
+| I22 | Anti-entropy detects and repairs an on-disk corrupt segment from a healthy peer. | `Chaos.AntiEntropyRepairsCorruptSegment` |
+| I23 | Graceful leave hands off replicas; files stay available. | `Chaos.GracefulLeaveHandsOffData` |
+| I24 | Sustained mixed workload (hundreds of ops, 8 clients) stays consistent. | `Stress.MixedWorkloadThousandsOfOps` |
+| I25 | No cross-node lock cycle under concurrent create/append (coordinator holds no lock across fan-out). | `Concurrency.*` (regression for the `fix(node)` deadlock) |
+
+## Test inventory
+53+ tests across `tests/{unit,integration,concurrency,chaos}/`, plus `scripts/smoke_test.sh` and
+`scripts/demo.sh`. Clean under AddressSanitizer/UBSan; concurrent paths clean under ThreadSanitizer.
