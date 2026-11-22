@@ -34,6 +34,43 @@ and a single-node smoke test. Target ~10 commits.
 
 ### Log
 - Created repo meta (.gitignore, LICENSE, CLAUDE.md, build-status.json, this file).
-- Next: architecture/invariants/tradeoffs docs, CMake skeleton, version header, `aegisfs` main
-  with arg parsing + `help`/`version`, GoogleTest FetchContent + first unit test, CI workflow,
-  smoke test script.
+- Architecture/invariants/tradeoffs docs written; CMake skeleton + GoogleTest FetchContent.
+- Implemented and verified far beyond M0 in this session (see below).
+
+---
+
+## M1–M4 — Core distributed file system (DONE, verified)
+Implemented and validated end-to-end:
+- **M1**: node identity persisted (`node.id`); length-framed + streaming TCP protocol (POSIX
+  sockets, bounded thread pool); CLI `serve` + client; crash-safe storage (stage→fsync→rename,
+  orphan-segment GC on recovery).
+- **M2**: SWIM-inspired gossip membership with incarnation numbers; consistent-hash ring;
+  first-3-successor placement. `list_mem_ids` shows a clean 5-node ring (no phantom seeds).
+- **M3**: replicated `create`/`get` across 3 successors; SHA-256 verified; first-create-only
+  returns ALREADY_EXISTS; binary streaming (verified byte-identical round trip).
+- **M4**: `append` with per-client seq + Lamport ordering; read-your-writes watermark in client;
+  `merge` reconciles replicas (verified all 3 replicas byte-identical, matching SHA-256);
+  reconcile_placement (push-based re-replication/rebalance + safe handoff) + pull anti-entropy.
+
+### Verification commands run (real output observed)
+- `ctest` → **33/33 unit tests pass** (hash, ring, protocol, manifest, storage, membership).
+- `scripts/smoke_test.sh` → **SMOKE PASS** (3-node: membership converge, create/get identical,
+  first-create-only, append+merge).
+- Manual 5-node: create replicates to 3 nodes; `get` SHA matches; duplicate create →
+  ALREADY_EXISTS; append → client_seq=1; merge → all 3 replicas identical SHA
+  `2ca02a87…`; `getfromreplica` on each replica returns identical bytes.
+
+### Bugs found & fixed (self-heal log)
+- `Listener` lacked move ops → `listener_ = bind(...)` copied fd and the temporary's dtor closed
+  the socket (node "listening" but refused connections). Added move ctor/assign + deleted copy.
+- Seed placeholder members with synthetic ids polluted the ring → contact seeds by address in
+  gossip instead of inserting fake members.
+- **Self-loopback deadlock**: `h_append`/`h_merge` held the per-file lock then replicated to the
+  same node, whose `h_replicate` waited on the same lock. Added `apply_segment_local` so a node
+  writes its own replica in-process instead of looping back over TCP.
+- Ring test bound a reference to a temporary vector element (dangling); test fixed.
+
+## M5 — Failure handling & topology (IN PROGRESS)
+Code present (failure detector, re-replication via reconcile_placement, restart recovery, join
+rebalance, safe handoff). **Next:** write chaos tests (`tests/chaos/`) that kill 1 and 2 replica
+nodes and assert the surviving replica serves the file; restart+reconcile; join+rebalance.
