@@ -55,6 +55,23 @@ End-to-end latency (mean) and throughput:
   100 MiB over loopback. The 100 MiB path confirms large files stream in bounded 1 MiB chunks
   (no full-file buffering; see `docs/ARCHITECTURE.md` §4).
 
+## Concurrency scaling (create+append throughput)
+`benchmarks/runner/bench_concurrency.sh` drives N concurrent clients, each doing 20 ops
+(1 create + 19 appends) on its own file, against a 5-node cluster.
+
+| clients | total ops | wall ms | ops/sec |
+|---------|-----------|---------|---------|
+| 1       | 20        | 519     | 38.5    |
+| 5       | 100       | 1568    | 63.8    |
+| 10      | 200       | 2893    | 69.1    |
+| 20      | 400       | 6009    | 66.6    |
+
+Throughput scales from ~38 to ~69 ops/s and then plateaus around 10 clients — the single-host
+cluster saturates (shared CPU/disk, one-thread-per-connection IO) and the 5→10→20 curve flattens.
+**Caveat:** this harness spawns one CLI process per op, so per-op cost includes process fork/exec +
+TCP connect; absolute ops/sec is a floor, not the server's intrinsic ceiling. The in-process
+`Stress.MixedWorkloadThousandsOfOps` test drives ~720 ops without per-op process overhead.
+
 ## Caveats / reproducibility limits
 - Loopback TCP has ~zero network latency; on a real network the parallel-fan-out win would be
   larger (replica RTTs overlap). These numbers are a floor for the benefit, not a ceiling.
