@@ -1,0 +1,17 @@
+# Normalize line endings; treat sources as text.
+* text=auto eol=lf
+*.cpp text
+*.hpp text
+*.h text
+*.sh text eol=lf
+*.py text
+*.md text
+*.yml text
+*.yaml text
+
+# Benchmark raw data is text but can be large; keep as-is.
+benchmarks/results/*.csv text
+
+# Binary-ish artifacts (none tracked by default)
+*.bin binary
+*.png binary
