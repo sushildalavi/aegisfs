@@ -176,6 +176,7 @@ void Node::handle_conn(std::shared_ptr<Conn> c) {
     case MsgType::Status_: h_status(*c); break;
     case MsgType::Health: h_health(*c); break;
     case MsgType::Leave: h_leave(*c); break;
+    case MsgType::Metrics: h_metrics(*c); break;
     default: repl::send_reply(*c, Status::InvalidArgument); break;
   }
 }
@@ -361,6 +362,22 @@ void Node::h_status(Conn& c) {
 }
 
 void Node::h_health(Conn& c) { repl::send_reply(c, Status::Ok); }
+
+void Node::h_metrics(Conn& c) {
+  Fields h;
+  h.set_i64("status", static_cast<int64_t>(Status::Ok));
+  for (const auto& [k, v] : Metrics::instance().snapshot_counters()) h.set_u64("counter." + k, v);
+  for (const char* op : {"create", "append", "get", "merge"}) {
+    auto s = Metrics::instance().latency(op);
+    if (s.count == 0) continue;
+    std::string pfx = std::string("lat.") + op + ".";
+    h.set_u64(pfx + "count", s.count);
+    h.set_u64(pfx + "p50_us", s.p50);
+    h.set_u64(pfx + "p95_us", s.p95);
+    h.set_u64(pfx + "p99_us", s.p99);
+  }
+  write_frame(c, MsgType::Reply, h, "");
+}
 
 void Node::h_leave(Conn& c) {
   // Graceful leave: exclude self from the ring, then hand off our replicas to the new successors

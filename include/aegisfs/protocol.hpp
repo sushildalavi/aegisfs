@@ -24,6 +24,7 @@ enum class MsgType : uint16_t {
   Status_ = 18,
   Leave = 19,
   Health = 20,
+  Metrics = 21,
   // replica-internal
   ReplicatePut = 30,    // store a full base segment
   ReplicateAppend = 31, // store an append segment

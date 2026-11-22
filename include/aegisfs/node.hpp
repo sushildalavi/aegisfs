@@ -75,6 +75,7 @@ class Node {
   void h_status(Conn& c);
   void h_health(Conn& c);
   void h_leave(Conn& c);
+  void h_metrics(Conn& c);
 
   // coordinator role
   void h_create(Conn& c, Fields& h, uint64_t plen);
