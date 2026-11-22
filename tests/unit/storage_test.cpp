@@ -1,7 +1,10 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <atomic>
 #include <fstream>
+#include <thread>
+#include <vector>
 
 #include "aegisfs/storage.hpp"
 
@@ -80,6 +83,49 @@ TEST_F(StorageFixture, ManifestCommitAndReconstruct) {
             Status::Ok);
   EXPECT_EQ(out, base + ap1);
   EXPECT_EQ(fsha, sha256(base + ap1));
+}
+
+TEST_F(StorageFixture, ConcurrentPutsDifferentFiles) {
+  StorageEngine s(dir_);
+  ASSERT_EQ(s.init(), Status::Ok);
+  std::vector<std::thread> ts;
+  std::atomic<int> ok{0};
+  for (int i = 0; i < 16; ++i) {
+    ts.emplace_back([&, i] {
+      std::string name = "file" + std::to_string(i);
+      std::string fid = make_file_id(name);
+      std::string content(2000 + i * 37, static_cast<char>('A' + (i % 26)));
+      if (is_ok(s.put_segment(fid, "base.seg", content, sha256(content)))) ok.fetch_add(1);
+    });
+  }
+  for (auto& t : ts) t.join();
+  EXPECT_EQ(ok.load(), 16);
+  // read each back correctly
+  for (int i = 0; i < 16; ++i) {
+    std::string fid = make_file_id("file" + std::to_string(i));
+    std::string content(2000 + i * 37, static_cast<char>('A' + (i % 26)));
+    std::string back;
+    ASSERT_EQ(s.read_segment(fid, "base.seg", back), Status::Ok);
+    EXPECT_EQ(back, content);
+  }
+}
+
+TEST_F(StorageFixture, NestedFilenameRoundTrip) {
+  StorageEngine s(dir_);
+  ASSERT_EQ(s.init(), Status::Ok);
+  std::string name = "a/deep/nested/path.log";
+  ASSERT_TRUE(StorageEngine::valid_filename(name));
+  std::string fid = make_file_id(name);
+  std::string content = "nested-content";
+  ASSERT_EQ(s.put_segment(fid, "base.seg", content, sha256(content)), Status::Ok);
+  Manifest m; m.filename = name; m.file_id = fid; m.create_op_id = "c0";
+  SegmentRef sb; sb.kind = SegKind::Base; sb.op_id = "c0"; sb.size = content.size();
+  sb.sha = sha256(content); sb.disk_name = "base.seg";
+  m.add_segment(sb);
+  ASSERT_EQ(s.commit_manifest(m), Status::Ok);
+  Manifest loaded;
+  ASSERT_TRUE(s.load_manifest(fid, loaded));
+  EXPECT_EQ(loaded.filename, name);
 }
 
 TEST_F(StorageFixture, CrashRecoveryDropsOrphanSegment) {
