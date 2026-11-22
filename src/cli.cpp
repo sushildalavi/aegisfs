@@ -168,6 +168,24 @@ int run_client(const std::string& entry, std::vector<std::string> cmd) {
 }
 }  // namespace
 
+int run_shell(const std::string& entry) {
+  std::cout << "AegisFS shell — entry " << entry << " (type 'help', 'quit' to exit)\n";
+  std::string line;
+  while (true) {
+    std::cout << "aegisfs> " << std::flush;
+    if (!std::getline(std::cin, line)) break;
+    if (line == "quit" || line == "exit") break;
+    if (line.empty()) continue;
+    std::vector<std::string> cmd;
+    std::stringstream ss(line);
+    std::string tok;
+    while (ss >> tok) cmd.push_back(tok);
+    if (cmd.empty()) continue;
+    run_client(entry, cmd);
+  }
+  return 0;
+}
+
 int cli_main(int argc, char** argv) {
   std::vector<std::string> args(argv + 1, argv + argc);
   if (args.empty() || args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
@@ -183,6 +201,7 @@ int cli_main(int argc, char** argv) {
   }
   // client mode: expect --entry host:port then a command
   std::string entry = arg_value(args, "--entry", "127.0.0.1:9100");
+  if (args[0] == "shell") return run_shell(entry);
   std::vector<std::string> cmd;
   for (size_t i = 0; i < args.size(); ++i) {
     if (args[i] == "--entry") { ++i; continue; }
