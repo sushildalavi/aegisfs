@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -78,21 +79,22 @@ class Listener {
   ~Listener();
   Listener(const Listener&) = delete;
   Listener& operator=(const Listener&) = delete;
-  Listener(Listener&& o) noexcept : fd_(o.fd_), port_(o.port_) { o.fd_ = -1; o.port_ = 0; }
+  Listener(Listener&& o) noexcept : fd_(o.fd_.exchange(-1)), port_(o.port_) { o.port_ = 0; }
   Listener& operator=(Listener&& o) noexcept {
-    if (this != &o) { close(); fd_ = o.fd_; port_ = o.port_; o.fd_ = -1; o.port_ = 0; }
+    if (this != &o) { close(); fd_.store(o.fd_.exchange(-1)); port_ = o.port_; o.port_ = 0; }
     return *this;
   }
   // Bind+listen on host:port. host "0.0.0.0" or "127.0.0.1". Returns valid()==false on error.
   static Listener bind(const std::string& host, int port, int backlog = 128);
-  bool valid() const { return fd_ >= 0; }
+  bool valid() const { return fd_.load() >= 0; }
   int port() const { return port_; }
   // Accept one connection (blocking). Returns invalid Conn on error/shutdown.
   Conn accept();
+  // Race-free close: can be called from another thread to unblock accept() during shutdown.
   void close();
 
  private:
-  int fd_{-1};
+  std::atomic<int> fd_{-1};
   int port_{0};
 };
 

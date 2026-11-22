@@ -240,7 +240,11 @@ Status read_frame_streaming(
 // ---- Listener ----
 Listener::~Listener() { close(); }
 void Listener::close() {
-  if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
+  int old = fd_.exchange(-1);
+  if (old >= 0) {
+    ::shutdown(old, SHUT_RDWR);  // wake a blocked accept()
+    ::close(old);
+  }
 }
 
 Listener Listener::bind(const std::string& host, int port, int backlog) {
@@ -267,14 +271,15 @@ Listener Listener::bind(const std::string& host, int port, int backlog) {
   struct sockaddr_in bound{};
   socklen_t bl = sizeof(bound);
   getsockname(fd, reinterpret_cast<sockaddr*>(&bound), &bl);
-  l.fd_ = fd;
+  l.fd_.store(fd);
   l.port_ = ntohs(bound.sin_port);
   return l;
 }
 
 Conn Listener::accept() {
-  if (fd_ < 0) return Conn();
-  int cfd = ::accept(fd_, nullptr, nullptr);
+  int fd = fd_.load();
+  if (fd < 0) return Conn();
+  int cfd = ::accept(fd, nullptr, nullptr);
   if (cfd < 0) return Conn();
   int one = 1;
   setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
