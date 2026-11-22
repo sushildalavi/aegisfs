@@ -160,3 +160,21 @@ TEST(Integration, LsPresenceReflectsFailure) {
   }
   EXPECT_TRUE(healed) << "present_count should return to 3 on live replicas after healing";
 }
+
+TEST(Integration, GetNonexistentReturnsNotFound) {
+  Cluster cl(3);
+  ASSERT_TRUE(cl.await_convergence(3));
+  Client c = cl.client(0, "c1");
+  std::string out = cl.root() + "/nope.bin";
+  auto r = c.get("does/not/exist", out);
+  EXPECT_EQ(r.status, Status::NotFound);
+}
+
+TEST(Integration, InvalidFilenameRejected) {
+  Cluster cl(3);
+  ASSERT_TRUE(cl.await_convergence(3));
+  std::string in = make_temp_file("bad", 10);
+  Client c = cl.client(0, "c1");
+  EXPECT_EQ(c.create(in, "../escape").status, Status::InvalidArgument);
+  EXPECT_EQ(c.create(in, "/abs/path").status, Status::InvalidArgument);
+}
