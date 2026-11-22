@@ -3,22 +3,22 @@
   "repo": "sushildalavi/aegisfs",
   "complete": false,
   "baseline_sha": "UNBORN",
-  "new_substantive_commits": 27,
+  "new_substantive_commits": 100,
   "commit_target": 110,
   "commit_minimum": 100,
-  "current_milestone": "M5",
+  "current_milestone": "M7",
   "last_verified_sha": null,
   "milestones": {
     "M0": {"status": "done", "desc": "Repo/toolchain inspect; CMake skeleton; docs; basic executable + smoke test"},
     "M1": {"status": "done", "desc": "Node identity (persisted), framed+streaming TCP protocol, CLI, health, crash-safe storage engine"},
-    "M2": {"status": "done", "desc": "Gossip membership + consistent-hash ring + first-3 successor placement (verified)"},
+    "M2": {"status": "done", "desc": "Gossip membership + consistent-hash ring (virtual nodes) + first-3 successor placement (verified)"},
     "M3": {"status": "done", "desc": "Replicated create/get, SHA-256 checksums, first-create-only, streaming (verified e2e)"},
-    "M4": {"status": "done", "desc": "Append segments, per-client order+seq, read-your-writes watermark, merge (3-replica identical verified), reconcile/anti-entropy"},
-    "M5": {"status": "in_progress", "desc": "Failure detection, re-replication, restart reconcile, join rebalance — code present; chaos tests pending"},
-    "M6": {"status": "todo", "desc": "Concurrency + fault-injection + 10-node demo + stress + sanitizers + CI test suites"},
-    "M7": {"status": "todo", "desc": "Benchmarks, charts, docs, interview guide, resume claims"}
+    "M4": {"status": "done", "desc": "Append segments, per-client order+seq, read-your-writes watermark, merge (3-replica identical verified), reconcile + anti-entropy"},
+    "M5": {"status": "done", "desc": "Failure detection, re-replication, restart reconcile, join rebalance, graceful leave, corrupt-segment repair — chaos tests pass"},
+    "M6": {"status": "done", "desc": "Concurrency + fault-injection + 10-node demo + stress + ASan/UBSan + TSan + CI"},
+    "M7": {"status": "done", "desc": "Benchmarks (seq vs parallel, concurrency scaling), docs, interview guide, resume claims"}
   },
-  "test_gates": {"attempted": 33, "passed": 33, "failed": 0, "skipped": 0, "note": "33 unit tests + smoke_test.sh (3-node e2e) pass; integration/chaos/concurrency suites pending"},
+  "test_gates": {"attempted": 85, "passed": 85, "failed": 0, "skipped": 0, "note": "85 ctest tests pass; smoke + 10-node demo pass; ASan/UBSan clean; concurrency clean under TSan. Docker Compose scenarios NOT RUN (no Docker on host)."},
   "blockers": [
     {"id": "DOCKER_UNAVAILABLE", "detail": "docker not installed on this host; 10-node cluster runs process-local instead; Docker Compose scenarios NOT RUN", "fatal": false}
   ],
@@ -30,5 +30,5 @@
     "gh_login_verified": "sushildalavi",
     "gh_id": 75267758
   },
-  "next_command": "cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure"
+  "next_command": "scripts/verify_definition_of_done.sh"
 }

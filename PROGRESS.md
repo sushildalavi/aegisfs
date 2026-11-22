@@ -70,7 +70,30 @@ Implemented and validated end-to-end:
   writes its own replica in-process instead of looping back over TCP.
 - Ring test bound a reference to a temporary vector element (dangling); test fixed.
 
-## M5 — Failure handling & topology (IN PROGRESS)
-Code present (failure detector, re-replication via reconcile_placement, restart recovery, join
-rebalance, safe handoff). **Next:** write chaos tests (`tests/chaos/`) that kill 1 and 2 replica
-nodes and assert the surviving replica serves the file; restart+reconcile; join+rebalance.
+## M5 — Failure handling & topology (DONE)
+Failure detector (suspect→failed), push-based re-replication, restart recovery, join rebalance with
+safe handoff, graceful `leave`, periodic anti-entropy (pull + corrupt-segment repair). Chaos tests:
+`TwoNodeKillStillReadable`, `ReReplicationRestoresReplica`, `RestartNodeRecoversData`,
+`JoinKeepsFilesAvailable`, `GracefulLeaveHandsOffData`, `AntiEntropyRepairsCorruptSegment` — all pass.
+
+## M6 — Concurrency, fault injection, demo, sanitizers, CI (DONE)
+- Concurrency tests (ordering/no-dup, single-winner create race, 10-way different files) + a seeded
+  stress test (~720 ops, 8 clients). Found & fixed a cross-node lock-cycle deadlock and a SIGPIPE
+  crash; found & fixed an accept/close TSan data race.
+- `scripts/demo.sh`: 10-node demo with 2-node failure + re-replication (passes).
+- Clean under ASan/UBSan (all suites) and ThreadSanitizer (concurrency/membership).
+- CI workflow: build + ctest + ASan matrix + dedicated TSan job.
+
+## M7 — Benchmarks & docs (DONE)
+- `benchmarks/runner/bench.sh` + `bench_concurrency.sh`: real numbers in `benchmarks/results/`.
+  Parallel fan-out cuts 100 MiB create latency ~16%; small-file result neutral (reported honestly).
+- Docs: README, ARCHITECTURE (+Mermaid), INVARIANTS, TRADEOFFS, OPERATIONS, BENCHMARKS,
+  INTERVIEW_GUIDE, RESUME_CLAIMS, CHANGELOG, CONTRIBUTING, SECURITY.
+
+## Later additions (M5–M7 polish)
+Virtual nodes for ring balance (10-node spread 3..4294 → 645..1243); `metrics`/`leave`/`version`/
+`shell` commands; `ls` verified-presence; tmp GC; 85 tests total.
+
+## Final acceptance
+Run `scripts/verify_definition_of_done.sh`. Docker Compose scenarios are NOT RUN (no Docker on the
+dev host); the process-local 10-node path is verified instead. See `FINAL_REPORT.md`.
