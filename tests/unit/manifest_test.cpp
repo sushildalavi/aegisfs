@@ -76,3 +76,33 @@ TEST(ManifestTest, CrossClientDeterministicTieBreak) {
   EXPECT_EQ(ord[0]->client_id, "clientA");
   EXPECT_EQ(ord[1]->client_id, "clientB");
 }
+
+TEST(ManifestTest, FileIdIs16Hex) {
+  std::string id = make_file_id("some/file.txt");
+  EXPECT_EQ(id.size(), 16u);
+  for (char c : id) EXPECT_TRUE((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+  EXPECT_EQ(make_file_id("x"), make_file_id("x"));            // deterministic
+  EXPECT_NE(make_file_id("x"), make_file_id("y"));
+}
+
+TEST(ManifestTest, TotalSizeSumsSegments) {
+  Manifest m;
+  auto s1 = mkseg(SegKind::Base, "b", "c", 0, 1); s1.size = 100;
+  auto s2 = mkseg(SegKind::Append, "a", "c", 1, 2); s2.size = 55;
+  m.add_segment(s1);
+  m.add_segment(s2);
+  EXPECT_EQ(m.total_size(), 155u);
+}
+
+TEST(ManifestTest, OrderStableAcrossSerialize) {
+  Manifest m;
+  m.add_segment(mkseg(SegKind::Append, "c1#2", "c1", 2, 5));
+  m.add_segment(mkseg(SegKind::Base, "c1#0", "c1", 0, 1));
+  m.add_segment(mkseg(SegKind::Append, "c1#1", "c1", 1, 3));
+  std::string buf; m.serialize(buf);
+  auto p = Manifest::parse(reinterpret_cast<const uint8_t*>(buf.data()), buf.size());
+  ASSERT_TRUE(p.has_value());
+  auto a = m.ordered(), b = p->ordered();
+  ASSERT_EQ(a.size(), b.size());
+  for (size_t i = 0; i < a.size(); ++i) EXPECT_EQ(a[i]->op_id, b[i]->op_id);
+}
