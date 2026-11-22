@@ -1,0 +1,40 @@
+# Build directories
+build/
+build-*/
+out/
+cmake-build-*/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+_deps/
+compile_commands.json
+
+# Local cluster runtime state / data volumes
+data/
+run/
+*.log
+logs/
+cluster-*/
+*.pid
+
+# Test & benchmark artifacts (raw results are committed selectively)
+tests/_tmp/
+benchmarks/_tmp/
+*.tmp
+*.bin.tmp
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Secrets (never commit)
+.env
+*.pem
+*.key
+id_rsa*
