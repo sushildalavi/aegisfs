@@ -1,0 +1,34 @@
+{
+  "project": "AegisFS",
+  "repo": "sushildalavi/aegisfs",
+  "complete": false,
+  "baseline_sha": "UNBORN",
+  "new_substantive_commits": 0,
+  "commit_target": 110,
+  "commit_minimum": 100,
+  "current_milestone": "M0",
+  "last_verified_sha": null,
+  "milestones": {
+    "M0": {"status": "in_progress", "desc": "Repo/toolchain inspect; CMake skeleton; docs; basic executable + smoke test"},
+    "M1": {"status": "todo", "desc": "Node identity, framed TCP protocol, CLI, health, crash-safe storage engine"},
+    "M2": {"status": "todo", "desc": "Membership + consistent-hash ring + first-3 successor placement"},
+    "M3": {"status": "todo", "desc": "Replicated create/get, checksums, idempotency, streaming"},
+    "M4": {"status": "todo", "desc": "Append segments, per-client order, read-your-writes, merge, anti-entropy"},
+    "M5": {"status": "todo", "desc": "Failure detection, re-replication, restart reconcile, join rebalance"},
+    "M6": {"status": "todo", "desc": "Concurrency, fault injection, 10-node demo, stress, sanitizers, CI"},
+    "M7": {"status": "todo", "desc": "Benchmarks, charts, docs, interview guide, resume claims"}
+  },
+  "test_gates": {"attempted": 0, "passed": 0, "failed": 0, "skipped": 0},
+  "blockers": [
+    {"id": "DOCKER_UNAVAILABLE", "detail": "docker not installed on this host; 10-node cluster runs process-local instead; Docker Compose scenarios NOT RUN", "fatal": false}
+  ],
+  "environment": {
+    "platform": "darwin",
+    "compiler": "Apple clang 21 (C++20)",
+    "cmake": "4.5.1",
+    "docker": false,
+    "gh_login_verified": "sushildalavi",
+    "gh_id": 75267758
+  },
+  "next_command": "cmake -S . -B build -G Ninja && cmake --build build && ctest --test-dir build --output-on-failure"
+}
