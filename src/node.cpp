@@ -175,6 +175,7 @@ void Node::handle_conn(std::shared_ptr<Conn> c) {
     case MsgType::Merge: h_merge(*c, fr); break;
     case MsgType::Status_: h_status(*c); break;
     case MsgType::Health: h_health(*c); break;
+    case MsgType::Leave: h_leave(*c); break;
     default: repl::send_reply(*c, Status::InvalidArgument); break;
   }
 }
@@ -360,6 +361,17 @@ void Node::h_status(Conn& c) {
 }
 
 void Node::h_health(Conn& c) { repl::send_reply(c, Status::Ok); }
+
+void Node::h_leave(Conn& c) {
+  // Graceful leave: exclude self from the ring, then hand off our replicas to the new successors
+  // (reconcile_placement pushes missing data and safely deletes our now-redundant copies), and
+  // disseminate the LEFT state so peers stop routing to us.
+  membership_->mark_left(membership_->self_id());
+  reconcile_placement();
+  gossip_once();
+  Metrics::instance().incr("graceful_leave");
+  repl::send_reply(c, Status::Ok);
+}
 
 // ---------------- coordinator-role handlers ----------------
 
