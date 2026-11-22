@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <thread>
+
 #include "support/cluster_fixture.hpp"
 
 using namespace aegisfs;
@@ -113,4 +116,47 @@ TEST(Integration, GetFromReplicaPurityAndAgreement) {
     EXPECT_EQ(sha, ref_sha);
   }
   EXPECT_EQ(ref_sha, file_sha_hex(in));
+}
+
+TEST(Integration, MembershipPropagatesToAllNodes) {
+  Cluster cl(6);
+  ASSERT_TRUE(cl.await_convergence(6, 8000));
+  // every node independently sees all 6 members alive
+  for (size_t i = 0; i < cl.size(); ++i)
+    EXPECT_EQ(cl.node(i)->membership()->alive_count(), 6u) << "node " << i;
+}
+
+TEST(Integration, LsPresenceReflectsFailure) {
+  Cluster cl(5);
+  ASSERT_TRUE(cl.await_convergence(5));
+  std::string in = make_temp_file("lsp", 4000);
+  Client c = cl.client(0, "c1");
+  ASSERT_TRUE(c.create(in, "lsp/f").ok());
+  auto ls = c.ls("lsp/f");
+  ASSERT_TRUE(ls.ok());
+  EXPECT_EQ(ls.info.get_i64("present_count"), 3);
+
+  // Kill one replica. After failure detection + re-replication, ls should again report 3 present
+  // replicas (all on live nodes) — proving both the presence probe and healing work end to end.
+  std::string addr = ls.info.get_or("r0_addr");
+  int idx = cl.index_of_addr(addr);
+  ASSERT_GE(idx, 0);
+  cl.stop_node(idx);
+  int entry = (idx + 1) % static_cast<int>(cl.size());
+  Client c2(cl.addr(entry), "c2");
+  bool healed = false;
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+  while (std::chrono::steady_clock::now() < deadline) {
+    auto l = c2.ls("lsp/f");
+    if (l.ok() && l.info.get_i64("present_count") == 3) {
+      // and none of the present replicas is the dead node
+      bool dead_listed = false;
+      for (int i = 0; i < 3; ++i)
+        if (cl.index_of_addr(l.info.get_or("r" + std::to_string(i) + "_addr")) == idx)
+          dead_listed = true;
+      if (!dead_listed) { healed = true; break; }
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  EXPECT_TRUE(healed) << "present_count should return to 3 on live replicas after healing";
 }
