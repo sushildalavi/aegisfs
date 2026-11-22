@@ -25,6 +25,7 @@ struct NodeConfig {
   int rf{kReplicationFactor};
 
   int io_threads{8};
+  bool parallel_replication{true};  // fan out to non-primary replicas concurrently
   int gossip_interval_ms{300};
   int probe_interval_ms{400};
   int suspect_ms{1500};
@@ -96,6 +97,12 @@ class Node {
   Status apply_local_locked(const std::string& file_id, const std::string& filename,
                             const std::string& create_op, const SegmentRef& seg,
                             const std::string& src_path);
+  // Write `seg` (bytes in `src_path`, `plen` long) to each target replica; self-writes go local,
+  // others over the network. Sequential or concurrent per cfg_.parallel_replication. Returns the
+  // number of replicas that durably committed.
+  int fanout(const std::vector<RingNode>& targets, const std::string& file_id,
+             const std::string& filename, const std::string& create_op, const SegmentRef& seg,
+             const std::string& src_path, uint64_t plen, bool is_base);
   void gossip_once();
 
   NodeConfig cfg_;

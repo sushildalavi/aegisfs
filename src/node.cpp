@@ -431,6 +431,36 @@ Status Node::apply_local_locked(const std::string& file_id, const std::string& f
   return apply_segment_local(file_id, filename, create_op, seg, src_path);
 }
 
+int Node::fanout(const std::vector<RingNode>& targets, const std::string& file_id,
+                 const std::string& filename, const std::string& create_op, const SegmentRef& seg,
+                 const std::string& src_path, uint64_t plen, bool is_base) {
+  auto one = [&](const RingNode& r) -> Status {
+    if (r.node_id == membership_->self_id())
+      return apply_local_locked(file_id, filename, create_op, seg, src_path);
+    int fd = ::open(src_path.c_str(), O_RDONLY);
+    if (fd < 0) return Status::IoError;
+    std::function<size_t(char*, size_t)> src = [fd](char* b, size_t cap) -> size_t {
+      ssize_t n = ::read(fd, b, cap);
+      return n > 0 ? static_cast<size_t>(n) : 0;
+    };
+    Status rs = repl::replicate_segment(r.address, file_id, filename, create_op, seg, plen, src,
+                                        is_base);
+    ::close(fd);
+    return rs;
+  };
+  std::atomic<int> committed{0};
+  if (!cfg_.parallel_replication || targets.size() <= 1) {
+    for (const auto& r : targets)
+      if (is_ok(one(r))) committed.fetch_add(1);
+  } else {
+    std::vector<std::thread> ts;
+    for (const auto& r : targets)
+      ts.emplace_back([&, r] { if (is_ok(one(r))) committed.fetch_add(1); });
+    for (auto& t : ts) t.join();
+  }
+  return committed.load();
+}
+
 static size_t make_file_source(int& fd_holder, const std::string& path,
                                std::function<size_t(char*, size_t)>& src) {
   int fd = ::open(path.c_str(), O_RDONLY);
@@ -493,9 +523,9 @@ void Node::h_create(Conn& c, Fields& h, uint64_t plen) {
     return;
   }
   int committed = is_ok(primary) ? 1 : 0;
-  for (size_t i = 1; i < reps.size(); ++i) {
-    if (is_ok(write_to(reps[i]))) ++committed;
-  }
+  // fan out to the remaining replicas (sequential or parallel per config)
+  std::vector<RingNode> rest(reps.begin() + 1, reps.end());
+  committed += fanout(rest, file_id, filename, op_id, seg, tmp, plen, true);
   fs::remove(tmp);
   Fields reply;
   reply.set("file_id", file_id);
@@ -581,22 +611,7 @@ void Node::h_append(Conn& c, Fields& h, uint64_t plen) {
   seg.disk_name = "append-" + sanitize(op_id) + ".seg";
 
   auto reps = replicas_for(filename);
-  int committed = 0;
-  for (const auto& r : reps) {
-    Status rs;
-    if (r.node_id == membership_->self_id()) {
-      rs = apply_local_locked(file_id, filename, auth.create_op_id, seg, tmp);
-    } else {
-      int fd = -1;
-      std::function<size_t(char*, size_t)> src;
-      make_file_source(fd, tmp, src);
-      if (fd < 0) continue;
-      rs = repl::replicate_segment(r.address, file_id, filename, auth.create_op_id, seg, plen, src,
-                                   false);
-      ::close(fd);
-    }
-    if (is_ok(rs)) ++committed;
-  }
+  int committed = fanout(reps, file_id, filename, auth.create_op_id, seg, tmp, plen, false);
   fs::remove(tmp);
   Fields reply;
   reply.set_i64("committed", committed);

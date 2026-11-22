@@ -73,6 +73,7 @@ int run_serve(const std::vector<std::string>& args) {
   cfg.port = std::atoi(arg_value(args, "--port", "0").c_str());
   cfg.node_id = arg_value(args, "--id", "");
   cfg.rf = std::atoi(arg_value(args, "--rf", "3").c_str());
+  cfg.parallel_replication = arg_value(args, "--parallel", "1") != "0";
   cfg.seeds = split_csv(arg_value(args, "--seeds", ""));
 
   Node node(std::move(cfg));
