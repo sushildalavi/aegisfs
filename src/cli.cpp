@@ -19,6 +19,7 @@
 #include "aegisfs/client.hpp"
 #include "aegisfs/hash.hpp"
 #include "aegisfs/node.hpp"
+#include "aegisfs/version.hpp"
 
 namespace aegisfs {
 
@@ -171,6 +172,10 @@ int cli_main(int argc, char** argv) {
   std::vector<std::string> args(argv + 1, argv + argc);
   if (args.empty() || args[0] == "help" || args[0] == "--help" || args[0] == "-h") {
     print_help();
+    return 0;
+  }
+  if (args[0] == "version" || args[0] == "--version" || args[0] == "-v") {
+    std::cout << kBuildName << " " << kVersion << " (protocol v" << kProtocolVersion << ")\n";
     return 0;
   }
   if (args[0] == "serve") {
