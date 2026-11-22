@@ -123,6 +123,7 @@ int run_client(const std::string& entry, std::vector<std::string> cmd) {
   if (op == "status") { auto r = cli.status(); print_info(r); return exit_code(r.status); }
   if (op == "health") { auto r = cli.health(); print_info(r); return exit_code(r.status); }
   if (op == "leave") { auto r = cli.leave(); print_info(r); return exit_code(r.status); }
+  if (op == "metrics") { auto r = cli.metrics(); print_info(r); return exit_code(r.status); }
   if (op == "getfromreplica" && cmd.size() >= 4) {
     auto r = cli.get_from_replica(cmd[1], cmd[2], cmd[3]); print_info(r); return exit_code(r.status);
   }
