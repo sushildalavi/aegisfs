@@ -51,6 +51,14 @@ struct Frame {
 Status write_frame(Conn& c, MsgType type, const Fields& header, const std::string& payload);
 Status read_frame(Conn& c, Frame& out);
 
+// Low-level split read: read only the frame head (type/header/payload_len), leaving the payload
+// on the wire. The caller MUST then consume exactly payload_len bytes via stream_payload_in or
+// discard_payload. Used by the server dispatcher to route before reading large payloads.
+Status read_message_head(Conn& c, MsgType& type, Fields& header, uint64_t& payload_len);
+Status stream_payload_in(Conn& c, uint64_t payload_len,
+                         const std::function<bool(const char*, size_t)>& sink);
+Status discard_payload(Conn& c, uint64_t payload_len);
+
 // Streaming write: send the prefix+header+payload_len, then stream `payload_len` bytes pulled
 // from `source` (called with a buffer; returns bytes written, 0 at EOF). Used for file uploads.
 Status write_frame_streaming(
@@ -66,7 +74,15 @@ Status read_frame_streaming(
 // ---- TCP listener ----
 class Listener {
  public:
+  Listener() = default;
   ~Listener();
+  Listener(const Listener&) = delete;
+  Listener& operator=(const Listener&) = delete;
+  Listener(Listener&& o) noexcept : fd_(o.fd_), port_(o.port_) { o.fd_ = -1; o.port_ = 0; }
+  Listener& operator=(Listener&& o) noexcept {
+    if (this != &o) { close(); fd_ = o.fd_; port_ = o.port_; o.fd_ = -1; o.port_ = 0; }
+    return *this;
+  }
   // Bind+listen on host:port. host "0.0.0.0" or "127.0.0.1". Returns valid()==false on error.
   static Listener bind(const std::string& host, int port, int backlog = 128);
   bool valid() const { return fd_ >= 0; }

@@ -144,7 +144,7 @@ Status write_frame(Conn& c, MsgType type, const Fields& header, const std::strin
 }
 
 // Reads MAGIC/VER/TYPE/HEADER into out; leaves payload_len available for caller.
-static Status read_prefix(Conn& c, MsgType& type, Fields& header, uint64_t& payload_len) {
+Status read_message_head(Conn& c, MsgType& type, Fields& header, uint64_t& payload_len) {
   uint8_t fixed[12];
   if (!c.read_all(fixed, sizeof(fixed))) return Status::NetworkError;
   uint32_t magic = get_u32(fixed);
@@ -167,11 +167,28 @@ static Status read_prefix(Conn& c, MsgType& type, Fields& header, uint64_t& payl
 
 Status read_frame(Conn& c, Frame& out) {
   uint64_t plen = 0;
-  Status s = read_prefix(c, out.type, out.header, plen);
+  Status s = read_message_head(c, out.type, out.header, plen);
   if (!is_ok(s)) return s;
   out.payload.resize(plen);
   if (plen && !c.read_all(out.payload.data(), plen)) return Status::NetworkError;
   return Status::Ok;
+}
+
+Status stream_payload_in(Conn& c, uint64_t payload_len,
+                         const std::function<bool(const char*, size_t)>& sink) {
+  std::vector<char> buf(kStreamChunkBytes);
+  uint64_t got = 0;
+  while (got < payload_len) {
+    size_t want = static_cast<size_t>(std::min<uint64_t>(buf.size(), payload_len - got));
+    if (!c.read_all(buf.data(), want)) return Status::NetworkError;
+    if (!sink(buf.data(), want)) return Status::IoError;
+    got += want;
+  }
+  return Status::Ok;
+}
+
+Status discard_payload(Conn& c, uint64_t payload_len) {
+  return stream_payload_in(c, payload_len, [](const char*, size_t) { return true; });
 }
 
 Status write_frame_streaming(
@@ -196,7 +213,7 @@ Status write_frame_streaming(
 Status read_frame_streaming(
     Conn& c, MsgType& type, Fields& header, uint64_t& payload_len,
     const std::function<bool(const char*, size_t)>& sink) {
-  Status s = read_prefix(c, type, header, payload_len);
+  Status s = read_message_head(c, type, header, payload_len);
   if (!is_ok(s)) return s;
   std::vector<char> buf(kStreamChunkBytes);
   uint64_t got = 0;
