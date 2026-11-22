@@ -91,6 +91,11 @@ class Node {
   Status apply_segment_local(const std::string& file_id, const std::string& filename,
                              const std::string& create_op, const SegmentRef& seg,
                              const std::string& src_path);
+  // Same, but acquires the per-file lock for the (short, purely-local) critical section.
+  // Coordinators use this for self-writes so they never hold a lock across network fan-out.
+  Status apply_local_locked(const std::string& file_id, const std::string& filename,
+                            const std::string& create_op, const SegmentRef& seg,
+                            const std::string& src_path);
   void gossip_once();
 
   NodeConfig cfg_;

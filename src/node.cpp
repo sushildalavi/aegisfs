@@ -210,11 +210,8 @@ void Node::h_replicate(Conn& c, Fields& h, uint64_t plen, bool is_base) {
     return;
   }
   observe_lamport(seg.lamport_ts);
-  // stream payload directly into the segment store, computing sha.
+  // Spool the payload to a temp file (verifying its SHA), then apply under the per-file lock.
   Sha256Digest got;
-  uint64_t off = 0;
-  // We buffer from the network into storage via a pull source backed by a small staging ring.
-  // Simplter: read payload to a temp file first, then put_segment_stream from it.
   std::string tmp;
   Status ss = spool_payload(c, plen, "repl", tmp, got);
   if (!is_ok(ss)) { repl::send_reply(c, ss); return; }
@@ -223,33 +220,13 @@ void Node::h_replicate(Conn& c, Fields& h, uint64_t plen, bool is_base) {
     repl::send_reply(c, Status::ChecksumMismatch);
     return;
   }
-  auto lk = file_lock(file_id);
-  std::lock_guard<std::mutex> g(*lk);
-  // move temp into the segment store
-  int tfd = ::open(tmp.c_str(), O_RDONLY);
-  if (tfd < 0) { fs::remove(tmp); repl::send_reply(c, Status::IoError); return; }
-  Sha256Digest stored_sha;
-  Status ps = storage_->put_segment_stream(
-      file_id, seg.disk_name, seg.size,
-      [&](char* b, size_t cap) -> size_t {
-        ssize_t n = ::read(tfd, b, cap);
-        return n > 0 ? static_cast<size_t>(n) : 0;
-      },
-      stored_sha);
-  ::close(tfd);
-  fs::remove(tmp);
-  (void)off;
-  if (!is_ok(ps)) { repl::send_reply(c, ps); return; }
-  // update manifest
-  Manifest m;
-  if (!storage_->load_manifest(file_id, m)) {
-    m.filename = filename;
-    m.file_id = file_id;
-    m.create_op_id = create_op;
-    m.version = 0;
+  Status cs;
+  {
+    auto lk = file_lock(file_id);
+    std::lock_guard<std::mutex> g(*lk);
+    cs = apply_segment_local(file_id, filename, create_op, seg, tmp);
   }
-  m.add_segment(seg);
-  Status cs = storage_->commit_manifest(m);
+  fs::remove(tmp);
   Metrics::instance().incr(is_base ? "replicate_put" : "replicate_append");
   repl::send_reply(c, cs);
 }
@@ -414,6 +391,15 @@ Status Node::spool_payload(Conn& c, uint64_t plen, const std::string& tag, std::
 Status Node::apply_segment_local(const std::string& file_id, const std::string& filename,
                                  const std::string& create_op, const SegmentRef& seg,
                                  const std::string& src_path) {
+  // Lock-free: the caller holds the per-file lock. Enforces idempotency and first-create-only.
+  Manifest m;
+  bool have = storage_->load_manifest(file_id, m);
+  if (have && m.has_op(seg.op_id)) return Status::Ok;  // idempotent replay
+  if (seg.kind == SegKind::Base && have) {
+    for (const auto& s : m.segments) {
+      if (s.kind == SegKind::Base && s.op_id != seg.op_id) return Status::AlreadyExists;
+    }
+  }
   int fd = ::open(src_path.c_str(), O_RDONLY);
   if (fd < 0) return Status::IoError;
   Sha256Digest stored;
@@ -426,12 +412,8 @@ Status Node::apply_segment_local(const std::string& file_id, const std::string& 
       stored);
   ::close(fd);
   if (!is_ok(ps)) return ps;
-  if (stored != seg.sha) {
-    storage_->remove_file(file_id);  // defensive; should not happen
-    return Status::ChecksumMismatch;
-  }
-  Manifest m;
-  if (!storage_->load_manifest(file_id, m)) {
+  if (stored != seg.sha) return Status::ChecksumMismatch;
+  if (!have) {
     m.filename = filename;
     m.file_id = file_id;
     m.create_op_id = create_op;
@@ -439,6 +421,14 @@ Status Node::apply_segment_local(const std::string& file_id, const std::string& 
   }
   m.add_segment(seg);
   return storage_->commit_manifest(m);
+}
+
+Status Node::apply_local_locked(const std::string& file_id, const std::string& filename,
+                                const std::string& create_op, const SegmentRef& seg,
+                                const std::string& src_path) {
+  auto lk = file_lock(file_id);
+  std::lock_guard<std::mutex> g(*lk);
+  return apply_segment_local(file_id, filename, create_op, seg, src_path);
 }
 
 static size_t make_file_source(int& fd_holder, const std::string& path,
@@ -472,16 +462,6 @@ void Node::h_create(Conn& c, Fields& h, uint64_t plen) {
   auto reps = replicas_for(filename);
   if (reps.empty()) { fs::remove(tmp); repl::send_reply(c, Status::Unavailable); return; }
 
-  // first-create-only: reject if any replica already has the file.
-  for (const auto& r : reps) {
-    Manifest existing;
-    if (is_ok(repl::fetch_manifest(r.address, file_id, existing))) {
-      fs::remove(tmp);
-      repl::send_reply(c, Status::AlreadyExists);
-      return;
-    }
-  }
-
   SegmentRef seg;
   seg.kind = SegKind::Base;
   seg.op_id = op_id;
@@ -492,22 +472,29 @@ void Node::h_create(Conn& c, Fields& h, uint64_t plen) {
   seg.sha = sha;
   seg.disk_name = "base.seg";
 
-  auto lk = file_lock(file_id);
-  std::lock_guard<std::mutex> g(*lk);
-  int committed = 0;
-  for (const auto& r : reps) {
-    Status rs;
-    if (r.node_id == membership_->self_id()) {
-      rs = apply_segment_local(file_id, filename, op_id, seg, tmp);
-    } else {
-      int fd = -1;
-      std::function<size_t(char*, size_t)> src;
-      make_file_source(fd, tmp, src);
-      if (fd < 0) continue;
-      rs = repl::replicate_segment(r.address, file_id, filename, op_id, seg, plen, src, true);
-      ::close(fd);
-    }
-    if (is_ok(rs)) ++committed;
+  // Primary-arbitrated first-create-only: write the base to the primary (reps[0]) first; it
+  // atomically rejects a duplicate base (different op_id). Concurrent creates serialize there.
+  // The coordinator holds NO cross-node lock; each node locks only its own local apply.
+  auto write_to = [&](const RingNode& r) -> Status {
+    if (r.node_id == membership_->self_id()) return apply_local_locked(file_id, filename, op_id, seg, tmp);
+    int fd = -1;
+    std::function<size_t(char*, size_t)> src;
+    make_file_source(fd, tmp, src);
+    if (fd < 0) return Status::IoError;
+    Status rs = repl::replicate_segment(r.address, file_id, filename, op_id, seg, plen, src, true);
+    ::close(fd);
+    return rs;
+  };
+
+  Status primary = write_to(reps[0]);
+  if (primary == Status::AlreadyExists) {
+    fs::remove(tmp);
+    repl::send_reply(c, Status::AlreadyExists);
+    return;
+  }
+  int committed = is_ok(primary) ? 1 : 0;
+  for (size_t i = 1; i < reps.size(); ++i) {
+    if (is_ok(write_to(reps[i]))) ++committed;
   }
   fs::remove(tmp);
   Fields reply;
@@ -564,9 +551,6 @@ void Node::h_append(Conn& c, Fields& h, uint64_t plen) {
   Status ss = spool_payload(c, plen, "append", tmp, sha);
   if (!is_ok(ss)) { repl::send_reply(c, ss); return; }
 
-  auto lk = file_lock(file_id);
-  std::lock_guard<std::mutex> g(*lk);
-
   Manifest auth;
   std::vector<RingNode> live;
   Status as = authoritative_manifest(filename, auth, live);
@@ -601,7 +585,7 @@ void Node::h_append(Conn& c, Fields& h, uint64_t plen) {
   for (const auto& r : reps) {
     Status rs;
     if (r.node_id == membership_->self_id()) {
-      rs = apply_segment_local(file_id, filename, auth.create_op_id, seg, tmp);
+      rs = apply_local_locked(file_id, filename, auth.create_op_id, seg, tmp);
     } else {
       int fd = -1;
       std::function<size_t(char*, size_t)> src;
@@ -690,9 +674,8 @@ void Node::h_merge(Conn& c, Frame& fr) {
   ScopedTimer timer("merge");
   std::string filename = fr.header.get_or("file");
   std::string file_id = make_file_id(filename);
-  auto lk = file_lock(file_id);
-  std::lock_guard<std::mutex> g(*lk);
-
+  // No cross-node lock held during fan-out (would deadlock with replica-side locks). Self-repair
+  // uses apply_local_locked for its short local critical section.
   Manifest auth;
   std::vector<RingNode> live;
   Status as = authoritative_manifest(filename, auth, live);
@@ -724,7 +707,7 @@ void Node::h_merge(Conn& c, Frame& fr) {
       ::fsync(fd);
       ::close(fd);
       if (r.node_id == membership_->self_id()) {
-        apply_segment_local(file_id, filename, auth.create_op_id, seg, tmp);
+        apply_local_locked(file_id, filename, auth.create_op_id, seg, tmp);
       } else {
         int rfd = -1;
         std::function<size_t(char*, size_t)> src;
