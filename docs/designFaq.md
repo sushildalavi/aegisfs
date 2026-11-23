@@ -134,6 +134,15 @@ No. There is a per-file mutex that covers only the short local manifest update
 version did, and two coordinators writing to each other could deadlock. `Concurrency.*` guards
 against that.
 
+### Why are the failure-detector timings configurable?
+
+The defaults (400 ms probes, 1.5 s of suspicion) were tuned on loopback. In the container cluster
+with TLS on, a probe that has to complete a handshake sometimes took longer than that, and a single
+slow probe could start a suspicion that ran out before the node refuted it, so a healthy node was
+declared failed. The network fault test caught this intermittently. The compose file now runs
+1 s probes and 6 s of suspicion, and it has been stable since. Slower detection means a really dead
+node takes a few seconds longer to be replaced.
+
 ### What happens under a network partition?
 
 The design leans toward consistency. A write needs all three replicas to be acknowledged as `OK`,

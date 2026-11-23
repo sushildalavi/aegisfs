@@ -35,6 +35,17 @@ awaitAlive() {  # awaitAlive <viewpoint node> <count> <seconds>
   done
   return 1
 }
+# Watches the cluster for `seconds` and fails if any node is ever reported FAILED. A node being
+# SUSPECT for a moment is normal (it is how a refutation gets a chance), FAILED is not.
+assertNeverFailed() {  # assertNeverFailed <viewpoint node> <seconds> <what>
+  local end=$((SECONDS + $2))
+  while [ $SECONDS -lt $end ]; do
+    echo "    [$3] non-alive at $1: $(cli "$1" listMemIds | grep -v ' ALIVE ' | tr -s ' ' | tr '\n' ';')"
+    [ "$(members "$1" FAILED)" -eq 0 ] || fail "$3 got a healthy node declared FAILED: $(cli "$1" listMemIds | grep -v ' ALIVE ' | tr -s ' ' | tr '\n' ';')"
+    sleep 3
+  done
+  awaitAlive "$1" 10 60 || fail "$3 left some node not ALIVE afterwards: $(cli "$1" listMemIds | grep -v ' ALIVE ' | tr -s ' ' | tr '\n' ';')"
+}
 stateOf() { cli "$1" listMemIds 2>/dev/null | awk -v n="$2" '$2==n {print $3}'; }
 sha() { sh_in "$1" "sha256sum $2" | awk '{print $1}'; }
 statusOf() { grep -o '^status=[A-Z_]*' | cut -d= -f2; }
@@ -51,7 +62,7 @@ st=$( (cli node0 create /tmp/in.bin net/base || true) | statusOf)
 # ---- 1. a node loses the network entirely ----
 c9=$(containerOf node9)
 docker network disconnect "$NETWORK" "$c9"
-end=$((SECONDS + 90)); detected=0
+end=$((SECONDS + 150)); detected=0
 while [ $SECONDS -lt $end ]; do
   s=$(stateOf node0 node9)
   if [ "$s" = FAILED ]; then detected=1; break; fi
@@ -94,16 +105,14 @@ st=$( (cli node0 create /tmp/in.bin net/slow || true) | statusOf)
 [ "$st" = OK ] || fail "create with 80ms latency returned $st"
 cli node3 get net/slow /tmp/slow.bin | grep -q 'status=OK' || fail "read with latency failed"
 [ "$(sha node3 /tmp/slow.bin)" = "$want" ] || fail "bytes differ under latency"
-sleep 20
-[ "$(members node0 ALIVE)" -eq 10 ] || fail "latency of 80ms caused false failure detections"
+assertNeverFailed node0 20 "80ms of latency"
 for n in "${NODES[@]}"; do sh_in "$n" 'tc qdisc del dev eth0 root'; done
 ok "80ms of added latency causes no false failures and no corruption"
 
 # ---- 4. a one-way broken link ----
 ip2=$(sh_in node1 'getent hosts node2' | awk '{print $1}')
 sh_in node1 "iptables -A OUTPUT -d $ip2 -j DROP"
-sleep 30
-[ "$(members node0 ALIVE)" -eq 10 ] || fail "a single broken link made a healthy node look dead"
+assertNeverFailed node0 30 "a single broken link"
 sh_in node1 'head -c 3000000 /dev/urandom > /tmp/oneway.bin'
 st=$( (cli node1 create /tmp/oneway.bin net/oneway || true) | statusOf)
 [ "$st" = OK ] || [ "$st" = DEGRADED ] || fail "create through a node with a broken link returned $st"

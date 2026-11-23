@@ -90,7 +90,8 @@ void printHelp() {
       "Run a node:\n"
       "  aegisfs serve --data <dir> [--host 127.0.0.1] [--advertise NAME] [--port N] [--id NAME]\n"
       "                [--seeds host:port,host:port] [--rf 3]\n"
-      "                [--scrub-interval-ms 300000]\n\n"
+      "                [--scrub-interval-ms 300000]\n"
+      "                [--probe-interval-ms 400] [--suspect-ms 1500] [--indirect-probes 3]\n\n"
       "Security (on by default; every node and client needs these, or --insecure):\n"
       "  node:   --tls-cert FILE --tls-key FILE --tls-ca FILE --token-file FILE\n"
       "          [--tls-require-client]\n"
@@ -123,6 +124,9 @@ int runServe(const std::vector<std::string>& args) {
   cfg.nodeId = argValue(args, "--id", "");
   cfg.rf = std::atoi(argValue(args, "--rf", "3").c_str());
   cfg.parallelReplication = argValue(args, "--parallel", "1") != "0";
+  cfg.probeIntervalMs = std::atoi(argValue(args, "--probe-interval-ms", "400").c_str());
+  cfg.suspectMs = std::atoi(argValue(args, "--suspect-ms", "1500").c_str());
+  cfg.indirectProbeCount = std::atoi(argValue(args, "--indirect-probes", "3").c_str());
   cfg.scrubIntervalMs = std::atoi(argValue(args, "--scrub-interval-ms", "300000").c_str());
   cfg.seeds = splitCsv(argValue(args, "--seeds", ""));
   if (insecureRequested(args)) {

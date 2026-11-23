@@ -23,6 +23,10 @@ nodes and clients use to reach the node. See `SECURITY.md` for what the token do
 protect.
 Flags: `--advertise <name>` (the address peers use to reach this node, when it differs from the
 bind address, as in containers), `--rf <k>` (default 3), `--parallel 0|1` (replica fan-out; default 1),
+`--probe-interval-ms <n>` (failure-detector probe period and timeout, default 400),
+`--suspect-ms <n>` (how long a suspected node has to refute before it is marked failed, default
+1500) and `--indirect-probes <n>` (default 3). The defaults suit loopback; the compose file uses 1000
+and 6000 because probes over TLS on a real network stack are slower.
 `--scrub-interval-ms <n>` (how often stored segments are fully re-hashed; default 300000).
 Client flag: `--stripe-mib <n>` splits files bigger than n MiB across the ring (default 256, 0 = off).
 

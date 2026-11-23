@@ -18,6 +18,9 @@
 
 namespace aegisfs {
 
+// How long a client waits for a node to answer a request once connected.
+static constexpr int kReplyTimeoutMs = 60000;
+
 Client::Client(std::string entryAddr, std::string clientId)
     : entry(std::move(entryAddr)), clientIdValue(std::move(clientId)) {}
 
@@ -53,6 +56,9 @@ OpResult Client::upload(MsgType t, const std::string& localPath, const std::stri
     Conn c = Conn::dial(host, port, 10000);
     if (!c.valid()) last = dialFail();
     else {
+      // Connecting should be quick, but the coordinator may spend several timeouts on replicas
+      // it cannot reach before it answers, so wait much longer for the reply than for the dial.
+      c.setRecvTimeout(kReplyTimeoutMs);
       int fd = ::open(localPath.c_str(), O_RDONLY);
       if (fd < 0) return OpResult{Status::IoError, {}, "open failed"};
       if (offset && ::lseek(fd, static_cast<off_t>(offset), SEEK_SET) < 0) {
@@ -406,6 +412,7 @@ static OpResult simpleRequest(const std::string& addr, MsgType t, const Fields& 
   Conn c = Conn::dial(host, port, 10000);
   if (!c.valid()) last = dialFail();
   else {
+    c.setRecvTimeout(kReplyTimeoutMs);
     Status ws = writeFrame(c, t, req, "");
     if (!isOk(ws)) last = OpResult{ws, {}, "send failed"};
     else {
