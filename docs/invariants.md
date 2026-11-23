@@ -35,6 +35,7 @@ The properties the code is meant to keep, and the tests that check each one. Tes
 | I28 | A coordinator failing mid-create does not leave an orphaned base segment. | `Chaos.PrimaryFailureDuringCreateDoesNotOrphanBase` |
 | I29 | A crash at any step of a segment or manifest write leaves the file exactly as it was or exactly the new version, with no orphans or temp files after restart. | `EveryStep/CrashPoints.AppendIsAllOrNothingAfterRestart/*`, `StorageFixture.CrashDuringFirstCreateLeavesNoFile` |
 | I30 | Every request must carry the cluster token, TLS clients verify the server certificate and host, and a client or node without credentials cannot talk to the cluster. | `Security.TokenIsRequiredOnEveryRequest`, `Security.AuthTokenComparison`, `Security.TlsClusterWorksAndRejectsOutsiders`, `Security.MutualTlsRejectsClientsWithoutACertificate`, `scripts/checks/reliabilityTest.sh` |
+| I31 | A file larger than the stripe size is split into chunk files placed independently by the ring, reads back byte-identical from any client, and keeps first-create-wins and append order. | `Striping.LargeFileIsSplitSpreadAndReadBackIdentical`, `Striping.AppendsToAStripedFileKeepTheirOrder`, `Striping.OnlyTheFirstCreateOfAStripedNameWins`, `Striping.SmallFilesAreStoredWholeAndUnchanged` |
 
 ## What is and is not covered
 

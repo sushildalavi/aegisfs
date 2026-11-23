@@ -721,6 +721,17 @@ void Node::hAppend(Conn& c, Fields& h, uint64_t plen) {
   Status as = authoritativeManifest(filename, auth, live);
   if (!isOk(as)) { fs::remove(tmp); repl::sendReply(c, as); return; }
 
+  // A striped file's base object is an index. Raw bytes appended to it would corrupt it, so the
+  // client has to go through the stripe-aware path (which says so with stripeIndex=1).
+  if (auth.createOpId.find(kStripeMarker) != std::string::npos &&
+      h.getOr("stripeIndex") != "1") {
+    fs::remove(tmp);
+    Fields reply;
+    reply.set("striped", "1");
+    repl::sendReply(c, Status::InvalidArgument, reply);
+    return;
+  }
+
   // idempotent retry
   if (auth.hasOp(opId)) {
     fs::remove(tmp);
@@ -813,6 +824,7 @@ void Node::hGet(Conn& c, Frame& fr) {
   Fields h;
   h.setI64("status", static_cast<int64_t>(Status::Ok));
   h.setU64("size", total);
+  if (chosen.createOpId.find(kStripeMarker) != std::string::npos) h.set("striped", "1");
   if (quorumRead) h.set("readMode", "quorum");
   // Pull from replica, forward to client. Use a pipe via buffered relay.
   std::string host; int port;

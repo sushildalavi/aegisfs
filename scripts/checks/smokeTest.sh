@@ -43,4 +43,13 @@ printf "APPEND\n" > "$TMP/ap"
 "$BIN" --entry "$E" merge smoke/file | grep -q 'status=OK' || fail "merge not OK"
 echo "[ok] append + merge succeeded"
 
+# a file bigger than the stripe size is split across the ring and read back whole
+head -c 5000000 /dev/urandom > "$TMP/big.bin"
+"$BIN" --stripe-mib 1 --entry "$E" create "$TMP/big.bin" smoke/striped >/dev/null || fail "striped create failed"
+"$BIN" --entry "127.0.0.1:9102" get smoke/striped "$TMP/big.out" >/dev/null || fail "striped get failed"
+a=$(shasum -a 256 "$TMP/big.bin" | awk '{print $1}')
+b=$(shasum -a 256 "$TMP/big.out" | awk '{print $1}')
+[ "$a" = "$b" ] || fail "striped create/get bytes differ"
+echo "[ok] striped create/get byte-identical"
+
 echo "SMOKE PASS"

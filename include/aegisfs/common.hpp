@@ -62,6 +62,10 @@ inline constexpr uint16_t kProtocolVersion = 1;
 inline constexpr int kReplicationFactor = 3;
 inline constexpr uint64_t kMaxHeaderBytes = 16u * 1024u * 1024u;       // 16 MiB header cap
 inline constexpr uint64_t kMaxPayloadBytes = 8ull * 1024 * 1024 * 1024; // 8 GiB payload cap
+// A file created in stripes records this in its create op id. The base object is then a small index
+// of chunk files, not the data itself.
+inline constexpr const char* kStripeMarker = "#stripe#";
+inline constexpr uint64_t kDefaultStripeBytes = 256ull * 1024 * 1024;
 inline constexpr size_t kStreamChunkBytes = 1u * 1024 * 1024;          // 1 MiB transfer chunks
 
 }  // namespace aegisfs

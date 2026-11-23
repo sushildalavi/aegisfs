@@ -23,6 +23,7 @@ nodes and clients use to reach the node. See `SECURITY.md` for what the token do
 protect.
 Flags: `--rf <k>` (default 3), `--parallel 0|1` (replica fan-out; default 1),
 `--scrub-interval-ms <n>` (how often stored segments are fully re-hashed; default 300000).
+Client flag: `--stripe-mib <n>` splits files bigger than n MiB across the ring (default 256, 0 = off).
 
 Docker (untested; see `docs/tradeoffs.md`; the header of the compose file says how to create the
 certificates first):

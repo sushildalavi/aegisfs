@@ -98,6 +98,21 @@ That write was never acknowledged, so it has to disappear. On restart, `StorageE
 removes segments the committed manifest does not reference and clears the staging directory
 (`StorageFixture.CrashRecoveryDropsOrphanSegment`).
 
+### Can one big file be spread over more than three nodes?
+
+Yes. A client splits a file larger than `--stripe-mib` (256 MiB by default, `0` turns it off) into
+chunk files named `<name>.stripe.<client>.<time>.<n>`. Each chunk is an ordinary file, so the ring
+places it on its own three nodes and it is replicated, checksummed and repaired like any other. The
+file keeps its real name as a small index listing the chunks (`Client::createStriped`). The index is
+written last, so it is the commit point: a reader never sees a file whose chunks are not all stored.
+A failed create can leave unreferenced chunk files behind, since there is no delete command yet.
+
+The create op id of the index contains `#stripe#`, which is how the nodes know. A `get` reply says
+`striped=1` and the client then fetches up to four chunks at a time and stitches them together. An
+`append` to a striped file is refused by the coordinator with `striped=1`, and the client retries by
+uploading the new data as chunks and appending their names to the index, so append order and
+read-your-writes work through the index. `ls`, `merge` and `getFromReplica` act on the index only.
+
 ### How are 100 MiB files moved without loading them?
 
 Everything goes through bounded 1 MiB chunks. Segments are hashed and written as they arrive

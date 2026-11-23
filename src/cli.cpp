@@ -27,6 +27,7 @@ namespace aegisfs {
 
 namespace {
 std::atomic<bool> gStop{false};
+uint64_t gStripeBytes = kDefaultStripeBytes;
 void onSignal(int) { gStop = true; }
 
 std::vector<std::string> splitCsv(const std::string& s) {
@@ -98,6 +99,7 @@ void printHelp() {
       "  _TLS_CLIENT_KEY and AEGISFS_TOKEN_FILE (or AEGISFS_CLUSTER_TOKEN).\n"
       "  --insecure (or AEGISFS_INSECURE=1) turns TLS and the token check off.\n"
       "Client commands (prefix with --entry host:port):\n"
+      "  --stripe-mib N                    split files bigger than N MiB across the ring (default 256, 0 = off)\n"
       "  create <localfile> <name>         upload a new file (first-create-only)\n"
       "  get <name> <localfile>            download (read-your-writes)\n"
       "  getQuorum <name> <localfile>      majority read; selects highest replica version\n"
@@ -180,6 +182,7 @@ int runClient(const std::string& entry, std::vector<std::string> cmd) {
   if (cmd.empty()) { printHelp(); return 2; }
   std::string clientId = "cli-" + std::to_string(::getpid());
   Client cli(entry, clientId);
+  cli.setStripeSize(gStripeBytes);
   const std::string& op = cmd[0];
 
   if (op == "help") { printHelp(); return 0; }
@@ -289,12 +292,16 @@ int cliMain(int argc, char** argv) {
     configureAuthToken(std::move(token));
   }
   std::string entry = argValue(args, "--entry", "127.0.0.1:9100");
+  gStripeBytes = std::strtoull(argValue(args, "--stripe-mib",
+                                         std::to_string(kDefaultStripeBytes >> 20)).c_str(),
+                               nullptr, 10) << 20;
   if (args[0] == "shell") return runShell(entry);
   std::vector<std::string> cmd;
   for (size_t i = 0; i < args.size(); ++i) {
     if (args[i] == "--insecure") continue;
     if (args[i] == "--entry" || args[i] == "--tls-ca" || args[i] == "--tls-client-cert" ||
-        args[i] == "--tls-client-key" || args[i] == "--token-file") { ++i; continue; }
+        args[i] == "--tls-client-key" || args[i] == "--token-file" ||
+        args[i] == "--stripe-mib") { ++i; continue; }
     cmd.push_back(args[i]);
   }
   return runClient(entry, cmd);

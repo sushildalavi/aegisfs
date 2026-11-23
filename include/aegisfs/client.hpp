@@ -30,6 +30,10 @@ class Client {
   const std::string& clientId() const { return clientIdValue; }
   void setEntry(std::string addr) { entry = std::move(addr); }
   void setRetryPolicy(RetryPolicy policy) { retry = policy; }
+  // Files larger than this are split into chunk files that the ring places independently, with a
+  // small index file under the real name. 0 turns striping off.
+  void setStripeSize(uint64_t bytes) { stripeBytes = bytes; }
+  uint64_t stripeSize() const { return stripeBytes; }
 
   OpResult create(const std::string& localPath, const std::string& name);
   OpResult append(const std::string& localPath, const std::string& name);
@@ -52,7 +56,15 @@ class Client {
   uint64_t watermark(const std::string& name) const;
 
  private:
-  OpResult upload(MsgType t, const std::string& localPath, const std::string& name);
+  OpResult upload(MsgType t, const std::string& localPath, const std::string& name,
+                  uint64_t offset = 0, uint64_t length = UINT64_MAX,
+                  const std::string& opIdPrefix = "", bool stripeIndex = false);
+  OpResult createStriped(const std::string& localPath, const std::string& name, uint64_t size);
+  OpResult appendStriped(const std::string& localPath, const std::string& name, uint64_t size);
+  // Uploads the file in chunks (a few at a time), returning the chunk names and the worst status.
+  OpResult uploadChunks(const std::string& localPath, const std::string& name, uint64_t size,
+                        std::vector<std::pair<std::string, uint64_t>>& chunks);
+  OpResult assembleStriped(const std::string& index, const std::string& localPath, bool quorum);
   OpResult getImpl(const std::string& name, const std::string& localPath, bool quorum);
   bool retryable(Status s) const;
   std::string entry;
@@ -60,6 +72,7 @@ class Client {
   std::map<std::string, uint64_t> watermarks;
   RetryPolicy retry;
   uint64_t opCounter{0};
+  uint64_t stripeBytes{kDefaultStripeBytes};
 };
 
 }  // namespace aegisfs
