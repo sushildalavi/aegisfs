@@ -6,71 +6,71 @@
 
 namespace aegisfs {
 
-void Ring::set_members(std::vector<RingNode> members) {
-  // De-duplicate physical members by node_id (last wins for address updates).
+void Ring::setMembers(std::vector<RingNode> members) {
+  // De-duplicate physical members by nodeId (last wins for address updates).
   std::vector<RingNode> phys;
   for (auto& m : members) {
     auto it = std::find_if(phys.begin(), phys.end(),
-                           [&](const RingNode& n) { return n.node_id == m.node_id; });
+                           [&](const RingNode& n) { return n.nodeId == m.nodeId; });
     if (it == phys.end()) phys.push_back(m);
     else it->address = m.address;
   }
   // Expand each physical node into kVirtualNodesPerNode virtual points on the ring; each vnode keeps
-  // the physical node_id/address but gets a distinct ring id from hashing "node_id#v".
+  // the physical nodeId/address but gets a distinct ring id from hashing "nodeId#v".
   std::vector<RingNode> vnodes;
   vnodes.reserve(phys.size() * kVirtualNodesPerNode);
   for (const auto& m : phys) {
     for (int v = 0; v < kVirtualNodesPerNode; ++v) {
       RingNode vn = m;
-      vn.rid = ring_id(m.node_id + "#" + std::to_string(v));
+      vn.rid = ringId(m.nodeId + "#" + std::to_string(v));
       vnodes.push_back(vn);
     }
   }
   std::sort(vnodes.begin(), vnodes.end(), [](const RingNode& a, const RingNode& b) {
     if (a.rid != b.rid) return a.rid < b.rid;
-    return a.node_id < b.node_id;  // stable tie-break on rid collision
+    return a.nodeId < b.nodeId;  // stable tie-break on rid collision
   });
-  nodes_ = std::move(vnodes);
+  ringNodes = std::move(vnodes);
 }
 
-uint64_t Ring::file_rid(const std::string& filename) const { return ring_id(filename); }
+uint64_t Ring::fileRid(const std::string& filename) const { return ringId(filename); }
 
-size_t Ring::first_at_or_after(uint64_t target) const {
+size_t Ring::firstAtOrAfter(uint64_t target) const {
   // Binary search for first node with rid >= target; wrap to 0 if none.
-  size_t lo = 0, hi = nodes_.size();
+  size_t lo = 0, hi = ringNodes.size();
   while (lo < hi) {
     size_t mid = lo + (hi - lo) / 2;
-    if (nodes_[mid].rid < target) {
+    if (ringNodes[mid].rid < target) {
       lo = mid + 1;
     } else {
       hi = mid;
     }
   }
-  if (lo == nodes_.size()) lo = 0;  // wraparound
+  if (lo == ringNodes.size()) lo = 0;  // wraparound
   return lo;
 }
 
 std::vector<RingNode> Ring::successors(const std::string& filename, int rf) const {
   std::vector<RingNode> out;
-  if (nodes_.empty() || rf <= 0) return out;
-  const size_t n = nodes_.size();
+  if (ringNodes.empty() || rf <= 0) return out;
+  const size_t n = ringNodes.size();
   const int want = std::min<int>(rf, static_cast<int>(n));
-  size_t start = first_at_or_after(ring_id(filename));
+  size_t start = firstAtOrAfter(ringId(filename));
   for (size_t i = 0; i < n && static_cast<int>(out.size()) < want; ++i) {
-    const RingNode& cand = nodes_[(start + i) % n];
-    // distinct by node_id (de-duped already, but keep guard for safety)
+    const RingNode& cand = ringNodes[(start + i) % n];
+    // distinct by nodeId (de-duped already, but keep guard for safety)
     bool dup = false;
     for (const auto& o : out) {
-      if (o.node_id == cand.node_id) { dup = true; break; }
+      if (o.nodeId == cand.nodeId) { dup = true; break; }
     }
     if (!dup) out.push_back(cand);
   }
   return out;
 }
 
-bool Ring::is_replica(const std::string& filename, const std::string& node_id, int rf) const {
+bool Ring::isReplica(const std::string& filename, const std::string& nodeId, int rf) const {
   for (const auto& r : successors(filename, rf)) {
-    if (r.node_id == node_id) return true;
+    if (r.nodeId == nodeId) return true;
   }
   return false;
 }

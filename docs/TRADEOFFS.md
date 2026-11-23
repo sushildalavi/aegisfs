@@ -31,7 +31,7 @@ rather than silently accepting weaker durability; reads that cannot meet the cli
 is cleaner to demonstrate and test under a CP-leaning policy. We expose the policy in responses.
 
 ## Cross-client ordering: Lamport timestamp + stable tie-break (vs vector clocks / consensus)
-**Chosen:** total order `(lamport_ts, client_id, client_seq)` for segments; per-client order from the
+**Chosen:** total order `(lamportTs, clientId, clientSeq)` for segments; per-client order from the
 client serializing its own appends.
 **Why:** gives deterministic convergence on quiescence without a consensus round per append.
 **Cost:** Lamport order is not "real time"; concurrent appends from different clients may interleave in
@@ -50,6 +50,6 @@ local metadata but not required; avoids a hidden "centralized DB" smell and keep
 ## Build/run environment on this host
 Docker is not installed here, so the "10 independent nodes" requirement is met with **process-local**
 nodes on distinct localhost ports (`scripts/cluster.sh`). A `Dockerfile`/`compose.yaml` are provided for
-hosts that have Docker; those Compose-specific scenarios are marked **NOT RUN** in `FINAL_REPORT.md`.
+hosts that have Docker; those Compose-specific scenarios are marked **NOT RUN** in `buildStatus.json`.
 This is an honest narrowing, not a mock: the distributed logic (separate processes, separate data dirs,
 real TCP, real failures via `kill`) is exercised for real.

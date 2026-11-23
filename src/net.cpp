@@ -9,14 +9,70 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
 #include <csignal>
 
 #include <cerrno>
 #include <charconv>
 #include <cstring>
+#include <mutex>
+#include <utility>
 #include <vector>
 
 namespace aegisfs {
+
+namespace {
+std::mutex gTlsMu;
+TlsConfig tlsState;
+std::once_flag gTlsInit;
+void initTlsLibrary() {
+  OPENSSL_init_ssl(0, nullptr);
+  OPENSSL_init_crypto(0, nullptr);
+}
+SSL_CTX* makeClientCtx(const TlsConfig& cfg) {
+  SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
+  if (!ctx) return nullptr;
+  SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+  if (!cfg.caFile.empty()) {
+    if (SSL_CTX_load_verify_locations(ctx, cfg.caFile.c_str(), nullptr) != 1) {
+      SSL_CTX_free(ctx); return nullptr;
+    }
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+  }
+  if (!cfg.clientCertificate.empty() && !cfg.clientPrivateKey.empty()) {
+    SSL_CTX_use_certificate_file(ctx, cfg.clientCertificate.c_str(), SSL_FILETYPE_PEM);
+    SSL_CTX_use_PrivateKey_file(ctx, cfg.clientPrivateKey.c_str(), SSL_FILETYPE_PEM);
+  }
+  else SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
+  return ctx;
+}
+SSL_CTX* makeServerCtx(const TlsConfig& cfg) {
+  SSL_CTX* ctx = SSL_CTX_new(TLS_server_method());
+  if (!ctx) return nullptr;
+  SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+  if (SSL_CTX_use_certificate_file(ctx, cfg.certificate.c_str(), SSL_FILETYPE_PEM) != 1 ||
+      SSL_CTX_use_PrivateKey_file(ctx, cfg.privateKey.c_str(), SSL_FILETYPE_PEM) != 1 ||
+      SSL_CTX_check_private_key(ctx) != 1) { SSL_CTX_free(ctx); return nullptr; }
+  if (!cfg.caFile.empty()) {
+    if (SSL_CTX_load_verify_locations(ctx, cfg.caFile.c_str(), nullptr) != 1) { SSL_CTX_free(ctx); return nullptr; }
+    if (cfg.requireClientCertificate) SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, nullptr);
+  }
+  return ctx;
+}
+}
+
+void configureTls(TlsConfig config) {
+  std::call_once(gTlsInit, initTlsLibrary);
+  std::lock_guard<std::mutex> lk(gTlsMu);
+  tlsState = std::move(config);
+}
+
+TlsConfig tlsConfig() {
+  std::lock_guard<std::mutex> lk(gTlsMu);
+  return tlsState;
+}
 
 // Ignore SIGPIPE process-wide: writing to a peer that closed its end must return EPIPE from
 // send(), not kill the process. Installed once at load time.
@@ -24,10 +80,10 @@ namespace {
 struct SigpipeIgnorer {
   SigpipeIgnorer() { ::signal(SIGPIPE, SIG_IGN); }
 };
-SigpipeIgnorer g_sigpipe_ignorer;
+SigpipeIgnorer gSigpipeIgnorer;
 }  // namespace
 
-bool parse_endpoint(const std::string& s, std::string& host, int& port) {
+bool parseEndpoint(const std::string& s, std::string& host, int& port) {
   auto pos = s.rfind(':');
   if (pos == std::string::npos || pos == 0 || pos + 1 >= s.size()) return false;
   host = s.substr(0, pos);
@@ -41,23 +97,24 @@ bool parse_endpoint(const std::string& s, std::string& host, int& port) {
 
 Conn::~Conn() { close(); }
 Conn& Conn::operator=(Conn&& o) noexcept {
-  if (this != &o) { close(); fd_ = o.fd_; o.fd_ = -1; }
+  if (this != &o) { close(); fileDescriptor = o.fileDescriptor; sslHandle = o.sslHandle; o.fileDescriptor = -1; o.sslHandle = nullptr; }
   return *this;
 }
 void Conn::close() {
-  if (fd_ >= 0) { ::close(fd_); fd_ = -1; }
+  if (sslHandle) { SSL_shutdown(static_cast<SSL*>(sslHandle)); SSL_free(static_cast<SSL*>(sslHandle)); sslHandle = nullptr; }
+  if (fileDescriptor >= 0) { ::close(fileDescriptor); fileDescriptor = -1; }
 }
 
-void Conn::set_recv_timeout(int ms) {
+void Conn::setRecvTimeout(int ms) {
   struct timeval tv{ms / 1000, (ms % 1000) * 1000};
-  setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  setsockopt(fileDescriptor, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 }
-void Conn::set_send_timeout(int ms) {
+void Conn::setSendTimeout(int ms) {
   struct timeval tv{ms / 1000, (ms % 1000) * 1000};
-  setsockopt(fd_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+  setsockopt(fileDescriptor, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 }
 
-Conn Conn::dial(const std::string& host, int port, int timeout_ms) {
+Conn Conn::dial(const std::string& host, int port, int timeoutMs) {
   struct addrinfo hints{};
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;
@@ -81,7 +138,7 @@ Conn Conn::dial(const std::string& host, int port, int timeout_ms) {
       fd_set wf;
       FD_ZERO(&wf);
       FD_SET(fd, &wf);
-      struct timeval tv{timeout_ms / 1000, (timeout_ms % 1000) * 1000};
+      struct timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
       rc = select(fd + 1, nullptr, &wf, nullptr, &tv);
       if (rc > 0) {
         int err = 0;
@@ -97,17 +154,30 @@ Conn Conn::dial(const std::string& host, int port, int timeout_ms) {
   if (fd < 0) return Conn();
   int one = 1;
   setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
-  Conn c(fd);
-  c.set_recv_timeout(timeout_ms);
-  c.set_send_timeout(timeout_ms);
+  TlsConfig cfg = tlsConfig();
+  void* sslPtr = nullptr;
+  if (cfg.enabled) {
+    SSL_CTX* ctx = makeClientCtx(cfg);
+    SSL* ssl = ctx ? SSL_new(ctx) : nullptr;
+    if (!ssl) { if (ctx) SSL_CTX_free(ctx); ::close(fd); return Conn(); }
+    SSL_set_fd(ssl, fd);
+    if (SSL_connect(ssl) != 1) { SSL_free(ssl); SSL_CTX_free(ctx); ::close(fd); return Conn(); }
+    // The connection owns the SSL object; its context is retained by SSL.
+    SSL_CTX_free(ctx);
+    sslPtr = ssl;
+  }
+  Conn c(fd, sslPtr);
+  c.setRecvTimeout(timeoutMs);
+  c.setSendTimeout(timeoutMs);
   return c;
 }
 
-bool Conn::write_all(const void* buf, size_t len) {
+bool Conn::writeAll(const void* buf, size_t len) {
   const char* p = static_cast<const char*>(buf);
   size_t off = 0;
   while (off < len) {
-    ssize_t n = ::send(fd_, p + off, len - off, 0);
+    ssize_t n = sslHandle ? SSL_write(static_cast<SSL*>(sslHandle), p + off, static_cast<int>(len - off))
+                     : ::send(fileDescriptor, p + off, len - off, 0);
     if (n < 0) {
       if (errno == EINTR) continue;
       return false;
@@ -118,11 +188,12 @@ bool Conn::write_all(const void* buf, size_t len) {
   return true;
 }
 
-bool Conn::read_all(void* buf, size_t len) {
+bool Conn::readAll(void* buf, size_t len) {
   char* p = static_cast<char*>(buf);
   size_t off = 0;
   while (off < len) {
-    ssize_t n = ::recv(fd_, p + off, len - off, 0);
+    ssize_t n = sslHandle ? SSL_read(static_cast<SSL*>(sslHandle), p + off, static_cast<int>(len - off))
+                     : ::recv(fileDescriptor, p + off, len - off, 0);
     if (n < 0) {
       if (errno == EINTR) continue;
       return false;
@@ -134,103 +205,103 @@ bool Conn::read_all(void* buf, size_t len) {
 }
 
 // ---- framing ----
-static std::string build_prefix(MsgType type, const std::string& header, uint64_t payload_len) {
+static std::string buildPrefix(MsgType type, const std::string& header, uint64_t payloadLen) {
   std::string pre;
-  put_u32(pre, kProtocolMagic);
-  put_u16(pre, kProtocolVersion);
-  put_u16(pre, static_cast<uint16_t>(type));
-  put_u32(pre, static_cast<uint32_t>(header.size()));
+  putU32(pre, kProtocolMagic);
+  putU16(pre, kProtocolVersion);
+  putU16(pre, static_cast<uint16_t>(type));
+  putU32(pre, static_cast<uint32_t>(header.size()));
   pre.append(header);
-  put_u64(pre, payload_len);
+  putU64(pre, payloadLen);
   return pre;
 }
 
-Status write_frame(Conn& c, MsgType type, const Fields& header, const std::string& payload) {
+Status writeFrame(Conn& c, MsgType type, const Fields& header, const std::string& payload) {
   std::string hbytes;
   header.serialize(hbytes);
-  std::string pre = build_prefix(type, hbytes, payload.size());
-  if (!c.write_all(pre.data(), pre.size())) return Status::NetworkError;
-  if (!payload.empty() && !c.write_all(payload.data(), payload.size())) return Status::NetworkError;
+  std::string pre = buildPrefix(type, hbytes, payload.size());
+  if (!c.writeAll(pre.data(), pre.size())) return Status::NetworkError;
+  if (!payload.empty() && !c.writeAll(payload.data(), payload.size())) return Status::NetworkError;
   return Status::Ok;
 }
 
-// Reads MAGIC/VER/TYPE/HEADER into out; leaves payload_len available for caller.
-Status read_message_head(Conn& c, MsgType& type, Fields& header, uint64_t& payload_len) {
+// Reads MAGIC/VER/TYPE/HEADER into out; leaves payloadLen available for caller.
+Status readMessageHead(Conn& c, MsgType& type, Fields& header, uint64_t& payloadLen) {
   uint8_t fixed[12];
-  if (!c.read_all(fixed, sizeof(fixed))) return Status::NetworkError;
-  uint32_t magic = get_u32(fixed);
-  uint16_t ver = get_u16(fixed + 4);
-  uint16_t t = get_u16(fixed + 6);
-  uint32_t hlen = get_u32(fixed + 8);
+  if (!c.readAll(fixed, sizeof(fixed))) return Status::NetworkError;
+  uint32_t magic = getU32(fixed);
+  uint16_t ver = getU16(fixed + 4);
+  uint16_t t = getU16(fixed + 6);
+  uint32_t hlen = getU32(fixed + 8);
   if (magic != kProtocolMagic) return Status::InvalidArgument;
   if (ver != kProtocolVersion) return Status::InvalidArgument;
   if (hlen > kMaxHeaderBytes) return Status::InvalidArgument;
   std::vector<uint8_t> hbuf(hlen);
-  if (hlen && !c.read_all(hbuf.data(), hlen)) return Status::NetworkError;
+  if (hlen && !c.readAll(hbuf.data(), hlen)) return Status::NetworkError;
   if (!Fields::parse(hbuf.data(), hlen, header)) return Status::InvalidArgument;
   uint8_t plbuf[8];
-  if (!c.read_all(plbuf, 8)) return Status::NetworkError;
-  payload_len = get_u64(plbuf);
-  if (payload_len > kMaxPayloadBytes) return Status::InvalidArgument;
+  if (!c.readAll(plbuf, 8)) return Status::NetworkError;
+  payloadLen = getU64(plbuf);
+  if (payloadLen > kMaxPayloadBytes) return Status::InvalidArgument;
   type = static_cast<MsgType>(t);
   return Status::Ok;
 }
 
-Status read_frame(Conn& c, Frame& out) {
+Status readFrame(Conn& c, Frame& out) {
   uint64_t plen = 0;
-  Status s = read_message_head(c, out.type, out.header, plen);
-  if (!is_ok(s)) return s;
+  Status s = readMessageHead(c, out.type, out.header, plen);
+  if (!isOk(s)) return s;
   out.payload.resize(plen);
-  if (plen && !c.read_all(out.payload.data(), plen)) return Status::NetworkError;
+  if (plen && !c.readAll(out.payload.data(), plen)) return Status::NetworkError;
   return Status::Ok;
 }
 
-Status stream_payload_in(Conn& c, uint64_t payload_len,
+Status streamPayloadIn(Conn& c, uint64_t payloadLen,
                          const std::function<bool(const char*, size_t)>& sink) {
   std::vector<char> buf(kStreamChunkBytes);
   uint64_t got = 0;
-  while (got < payload_len) {
-    size_t want = static_cast<size_t>(std::min<uint64_t>(buf.size(), payload_len - got));
-    if (!c.read_all(buf.data(), want)) return Status::NetworkError;
+  while (got < payloadLen) {
+    size_t want = static_cast<size_t>(std::min<uint64_t>(buf.size(), payloadLen - got));
+    if (!c.readAll(buf.data(), want)) return Status::NetworkError;
     if (!sink(buf.data(), want)) return Status::IoError;
     got += want;
   }
   return Status::Ok;
 }
 
-Status discard_payload(Conn& c, uint64_t payload_len) {
-  return stream_payload_in(c, payload_len, [](const char*, size_t) { return true; });
+Status discardPayload(Conn& c, uint64_t payloadLen) {
+  return streamPayloadIn(c, payloadLen, [](const char*, size_t) { return true; });
 }
 
-Status write_frame_streaming(
-    Conn& c, MsgType type, const Fields& header, uint64_t payload_len,
+Status writeFrameStreaming(
+    Conn& c, MsgType type, const Fields& header, uint64_t payloadLen,
     const std::function<size_t(char*, size_t)>& source) {
   std::string hbytes;
   header.serialize(hbytes);
-  std::string pre = build_prefix(type, hbytes, payload_len);
-  if (!c.write_all(pre.data(), pre.size())) return Status::NetworkError;
+  std::string pre = buildPrefix(type, hbytes, payloadLen);
+  if (!c.writeAll(pre.data(), pre.size())) return Status::NetworkError;
   std::vector<char> buf(kStreamChunkBytes);
   uint64_t sent = 0;
-  while (sent < payload_len) {
-    size_t want = static_cast<size_t>(std::min<uint64_t>(buf.size(), payload_len - sent));
+  while (sent < payloadLen) {
+    size_t want = static_cast<size_t>(std::min<uint64_t>(buf.size(), payloadLen - sent));
     size_t got = source(buf.data(), want);
     if (got == 0) return Status::IoError;  // source underran declared length
-    if (!c.write_all(buf.data(), got)) return Status::NetworkError;
+    if (!c.writeAll(buf.data(), got)) return Status::NetworkError;
     sent += got;
   }
   return Status::Ok;
 }
 
-Status read_frame_streaming(
-    Conn& c, MsgType& type, Fields& header, uint64_t& payload_len,
+Status readFrameStreaming(
+    Conn& c, MsgType& type, Fields& header, uint64_t& payloadLen,
     const std::function<bool(const char*, size_t)>& sink) {
-  Status s = read_message_head(c, type, header, payload_len);
-  if (!is_ok(s)) return s;
+  Status s = readMessageHead(c, type, header, payloadLen);
+  if (!isOk(s)) return s;
   std::vector<char> buf(kStreamChunkBytes);
   uint64_t got = 0;
-  while (got < payload_len) {
-    size_t want = static_cast<size_t>(std::min<uint64_t>(buf.size(), payload_len - got));
-    if (!c.read_all(buf.data(), want)) return Status::NetworkError;
+  while (got < payloadLen) {
+    size_t want = static_cast<size_t>(std::min<uint64_t>(buf.size(), payloadLen - got));
+    if (!c.readAll(buf.data(), want)) return Status::NetworkError;
     if (!sink(buf.data(), want)) return Status::IoError;
     got += want;
   }
@@ -240,11 +311,12 @@ Status read_frame_streaming(
 // ---- Listener ----
 Listener::~Listener() { close(); }
 void Listener::close() {
-  int old = fd_.exchange(-1);
+  int old = fileDescriptor.exchange(-1);
   if (old >= 0) {
     ::shutdown(old, SHUT_RDWR);  // wake a blocked accept()
     ::close(old);
   }
+  if (context) { SSL_CTX_free(static_cast<SSL_CTX*>(context)); context = nullptr; }
 }
 
 Listener Listener::bind(const std::string& host, int port, int backlog) {
@@ -271,18 +343,31 @@ Listener Listener::bind(const std::string& host, int port, int backlog) {
   struct sockaddr_in bound{};
   socklen_t bl = sizeof(bound);
   getsockname(fd, reinterpret_cast<sockaddr*>(&bound), &bl);
-  l.fd_.store(fd);
-  l.port_ = ntohs(bound.sin_port);
+  l.fileDescriptor.store(fd);
+  l.portNumber = ntohs(bound.sin_port);
+  TlsConfig cfg = tlsConfig();
+  if (cfg.enabled) {
+    SSL_CTX* ctx = makeServerCtx(cfg);
+    if (!ctx) { ::close(fd); l.fileDescriptor.store(-1); return l; }
+    l.context = ctx;
+  }
   return l;
 }
 
 Conn Listener::accept() {
-  int fd = fd_.load();
+  int fd = fileDescriptor.load();
   if (fd < 0) return Conn();
   int cfd = ::accept(fd, nullptr, nullptr);
   if (cfd < 0) return Conn();
   int one = 1;
   setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+  if (context) {
+    SSL* ssl = SSL_new(static_cast<SSL_CTX*>(context));
+    if (!ssl) { ::close(cfd); return Conn(); }
+    SSL_set_fd(ssl, cfd);
+    if (SSL_accept(ssl) != 1) { SSL_free(ssl); ::close(cfd); return Conn(); }
+    return Conn(cfd, ssl);
+  }
   return Conn(cfd);
 }
 

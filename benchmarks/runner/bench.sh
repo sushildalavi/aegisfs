@@ -46,11 +46,15 @@ run_matrix() {
       local name="bench/${mode}_${kb}_${r}"
       # CREATE
       local t0 t1 dt bps
-      t0=$(now_ms); "$BIN" --entry "$E" create "$TMP/in_$kb.bin" "$name" >/dev/null 2>&1; t1=$(now_ms)
+      t0=$(now_ms); if ! "$BIN" --entry "$E" create "$TMP/in_$kb.bin" "$name" >/dev/null 2>&1; then
+        echo "create failed for $name" >&2; exit 1
+      fi; t1=$(now_ms)
       dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1; bps=$((bytes*1000/dt))
       echo "$mode,create,$kb,$r,$dt,$bps" >> "$RESULTS/raw.csv"
       # GET
-      t0=$(now_ms); "$BIN" --entry "$E" get "$name" "$TMP/out_$kb.bin" >/dev/null 2>&1; t1=$(now_ms)
+      t0=$(now_ms); if ! "$BIN" --entry "$E" get "$name" "$TMP/out_$kb.bin" >/dev/null 2>&1; then
+        echo "get failed for $name" >&2; exit 1
+      fi; t1=$(now_ms)
       dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1; bps=$((bytes*1000/dt))
       echo "$mode,get,$kb,$r,$dt,$bps" >> "$RESULTS/raw.csv"
     done
@@ -65,4 +69,5 @@ run_matrix "parallel" 1
 
 echo "Raw results -> $RESULTS/raw.csv"
 python3 "$ROOT/benchmarks/runner/analyze.py" "$RESULTS/raw.csv" "$RESULTS"
+python3 "$ROOT/benchmarks/runner/validateResults.py" "$RESULTS/raw.csv"
 echo "Done."

@@ -18,7 +18,7 @@ test: build
 	ctest --test-dir $(BUILD) --output-on-failure
 
 smoke: build
-	scripts/smoke_test.sh
+	scripts/smokeTest.sh
 
 demo: build
 	scripts/demo.sh
@@ -33,11 +33,11 @@ asan:
 
 tsan:
 	cmake -S . -B build-tsan -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DAEGISFS_ENABLE_TSAN=ON
-	cmake --build build-tsan --target concurrency_test membership_test
-	./build-tsan/tests/concurrency_test
+	cmake --build build-tsan --target concurrencyTest membershipTest
+	./build-tsan/tests/concurrencyTest
 
 verify: build
-	scripts/verify_definition_of_done.sh
+	scripts/verifyDefinitionOfDone.sh
 
 clean:
 	rm -rf $(BUILD) build-asan build-tsan run run-bench

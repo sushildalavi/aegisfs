@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -14,9 +15,9 @@ namespace fs = std::filesystem;
 
 namespace aegisfs {
 
-StorageEngine::StorageEngine(std::string data_dir) : data_dir_(std::move(data_dir)) {}
+StorageEngine::StorageEngine(std::string dataRoot) : dataRoot(std::move(dataRoot)) {}
 
-bool StorageEngine::valid_filename(const std::string& name) {
+bool StorageEngine::validFilename(const std::string& name) {
   if (name.empty() || name.size() > 1024) return false;
   if (name.front() == '/') return false;             // no absolute paths
   if (name.find('\0') != std::string::npos) return false;
@@ -37,8 +38,8 @@ bool StorageEngine::valid_filename(const std::string& name) {
   return true;
 }
 
-std::string StorageEngine::file_path(const std::string& file_id, const std::string& name) const {
-  return files_dir() + "/" + file_id + "/" + name;
+std::string StorageEngine::filePath(const std::string& fileId, const std::string& name) const {
+  return filesDir() + "/" + fileId + "/" + name;
 }
 
 static Status mkdirs(const std::string& p) {
@@ -47,7 +48,15 @@ static Status mkdirs(const std::string& p) {
   return ec ? Status::IoError : Status::Ok;
 }
 
-static bool fsync_path(const std::string& p) {
+static bool validComponent(const std::string& s) {
+  if (s.empty() || s == "." || s == "..") return false;
+  for (unsigned char c : s) {
+    if (c < 0x20 || c == '/' || c == '\\') return false;
+  }
+  return true;
+}
+
+static bool fsyncPath(const std::string& p) {
   int fd = ::open(p.c_str(), O_RDONLY);
   if (fd < 0) return false;
 #ifdef F_FULLFSYNC
@@ -61,30 +70,30 @@ static bool fsync_path(const std::string& p) {
 }
 
 Status StorageEngine::init() {
-  if (!is_ok(mkdirs(files_dir()))) return Status::IoError;
-  if (!is_ok(mkdirs(tmp_dir()))) return Status::IoError;
+  if (!isOk(mkdirs(filesDir()))) return Status::IoError;
+  if (!isOk(mkdirs(tmpDir()))) return Status::IoError;
   return recover();
 }
 
 Status StorageEngine::recover() {
   std::error_code ec;
   // 1) wipe stale staging files
-  for (auto& e : fs::directory_iterator(tmp_dir(), ec)) {
+  for (auto& e : fs::directory_iterator(tmpDir(), ec)) {
     fs::remove_all(e.path(), ec);
   }
   // 2) for each file dir, drop orphan segments not referenced by the committed manifest
-  for (auto& e : fs::directory_iterator(files_dir(), ec)) {
+  for (auto& e : fs::directory_iterator(filesDir(), ec)) {
     if (!e.is_directory()) continue;
-    std::string file_id = e.path().filename().string();
+    std::string fileId = e.path().filename().string();
     Manifest m;
-    bool have = load_manifest(file_id, m);
+    bool have = loadManifest(fileId, m);
     if (!have) {
       // No committed manifest => nothing was acknowledged for this file; drop dir.
       fs::remove_all(e.path(), ec);
       continue;
     }
     std::vector<std::string> referenced;
-    for (const auto& s : m.segments) referenced.push_back(s.disk_name);
+    for (const auto& s : m.segments) referenced.push_back(s.diskName);
     for (auto& f : fs::directory_iterator(e.path(), ec)) {
       std::string nm = f.path().filename().string();
       if (nm == "manifest") continue;
@@ -98,13 +107,15 @@ Status StorageEngine::recover() {
   return Status::Ok;
 }
 
-bool StorageEngine::exists(const std::string& file_id) const {
+bool StorageEngine::exists(const std::string& fileId) const {
+  if (!validComponent(fileId)) return false;
   std::error_code ec;
-  return fs::exists(file_path(file_id, "manifest"), ec);
+  return fs::exists(filePath(fileId, "manifest"), ec);
 }
 
-bool StorageEngine::load_manifest(const std::string& file_id, Manifest& out) const {
-  std::string path = file_path(file_id, "manifest");
+bool StorageEngine::loadManifest(const std::string& fileId, Manifest& out) const {
+  if (!validComponent(fileId)) return false;
+  std::string path = filePath(fileId, "manifest");
   int fd = ::open(path.c_str(), O_RDONLY);
   if (fd < 0) return false;
   std::string buf;
@@ -118,14 +129,18 @@ bool StorageEngine::load_manifest(const std::string& file_id, Manifest& out) con
   return true;
 }
 
-static std::atomic<uint64_t> g_tmp_seq{0};
+static std::atomic<uint64_t> gTmpSeq{0};
 
-Status StorageEngine::commit_manifest(const Manifest& m) {
-  std::string dir = files_dir() + "/" + m.file_id;
-  if (!is_ok(mkdirs(dir))) return Status::IoError;
+Status StorageEngine::commitManifest(const Manifest& m) {
+  if (!validComponent(m.fileId)) return Status::InvalidArgument;
+  for (const auto& seg : m.segments) {
+    if (!validComponent(seg.diskName)) return Status::InvalidArgument;
+  }
+  std::string dir = filesDir() + "/" + m.fileId;
+  if (!isOk(mkdirs(dir))) return Status::IoError;
   std::string bytes;
   m.serialize(bytes);
-  std::string tmp = tmp_dir() + "/manifest." + std::to_string(g_tmp_seq.fetch_add(1)) + "." +
+  std::string tmp = tmpDir() + "/manifest." + std::to_string(gTmpSeq.fetch_add(1)) + "." +
                     std::to_string(::getpid());
   int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0) return Status::IoError;
@@ -136,73 +151,87 @@ Status StorageEngine::commit_manifest(const Manifest& m) {
     if (w < 0) { ::close(fd); ::unlink(tmp.c_str()); return Status::IoError; }
     p += w; left -= static_cast<size_t>(w);
   }
-  ::fsync(fd);
+  if (::fsync(fd) != 0) {
+    ::close(fd);
+    ::unlink(tmp.c_str());
+    return Status::IoError;
+  }
   ::close(fd);
   std::string dst = dir + "/manifest";
   if (::rename(tmp.c_str(), dst.c_str()) != 0) { ::unlink(tmp.c_str()); return Status::IoError; }
-  fsync_path(dir);
+  if (!fsyncPath(dir)) return Status::IoError;
   return Status::Ok;
 }
 
-Status StorageEngine::remove_file(const std::string& file_id) {
+Status StorageEngine::removeFile(const std::string& fileId) {
+  if (!validComponent(fileId)) return Status::InvalidArgument;
   std::error_code ec;
-  fs::remove_all(files_dir() + "/" + file_id, ec);
+  fs::remove_all(filesDir() + "/" + fileId, ec);
   return ec ? Status::IoError : Status::Ok;
 }
 
-std::vector<Manifest> StorageEngine::list_manifests() const {
+std::vector<Manifest> StorageEngine::listManifests() const {
   std::vector<Manifest> out;
   std::error_code ec;
-  for (auto& e : fs::directory_iterator(files_dir(), ec)) {
+  for (auto& e : fs::directory_iterator(filesDir(), ec)) {
     if (!e.is_directory()) continue;
     Manifest m;
-    if (load_manifest(e.path().filename().string(), m)) out.push_back(std::move(m));
+    if (loadManifest(e.path().filename().string(), m)) out.push_back(std::move(m));
   }
   return out;
 }
 
-Status StorageEngine::put_segment_stream(const std::string& file_id, const std::string& disk_name,
-                                         uint64_t payload_len,
+Status StorageEngine::putSegmentStream(const std::string& fileId, const std::string& diskName,
+                                         uint64_t payloadLen,
                                          const std::function<size_t(char*, size_t)>& source,
-                                         Sha256Digest& out_sha) {
-  std::string dir = files_dir() + "/" + file_id;
-  if (!is_ok(mkdirs(dir))) return Status::IoError;
-  std::string tmp = tmp_dir() + "/seg." + std::to_string(g_tmp_seq.fetch_add(1)) + "." +
+                                         Sha256Digest& outSha) {
+  if (!validComponent(fileId) || !validComponent(diskName)) return Status::InvalidArgument;
+  std::string dir = filesDir() + "/" + fileId;
+  if (!isOk(mkdirs(dir))) return Status::IoError;
+  std::string tmp = tmpDir() + "/seg." + std::to_string(gTmpSeq.fetch_add(1)) + "." +
                     std::to_string(::getpid());
   int fd = ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0) return Status::IoError;
   Sha256Stream hasher;
   std::vector<char> buf(kStreamChunkBytes);
   uint64_t got = 0;
-  while (got < payload_len) {
-    size_t want = static_cast<size_t>(std::min<uint64_t>(buf.size(), payload_len - got));
+  while (got < payloadLen) {
+    size_t want = static_cast<size_t>(std::min<uint64_t>(buf.size(), payloadLen - got));
     size_t n = source(buf.data(), want);
-    if (n == 0) { ::close(fd); ::unlink(tmp.c_str()); return Status::IoError; }
+    if (n == 0 || n > want) {
+      ::close(fd);
+      ::unlink(tmp.c_str());
+      return Status::IoError;
+    }
     hasher.update(buf.data(), n);
     const char* p = buf.data();
     size_t left = n;
     while (left) {
       ssize_t w = ::write(fd, p, left);
-      if (w < 0) { ::close(fd); ::unlink(tmp.c_str()); return Status::IoError; }
+      if (w <= 0) { ::close(fd); ::unlink(tmp.c_str()); return Status::IoError; }
       p += w; left -= static_cast<size_t>(w);
     }
     got += n;
   }
-  ::fsync(fd);
+  if (::fsync(fd) != 0) {
+    ::close(fd);
+    ::unlink(tmp.c_str());
+    return Status::IoError;
+  }
   ::close(fd);
-  out_sha = hasher.finalize();
-  std::string dst = dir + "/" + disk_name;
+  outSha = hasher.finalize();
+  std::string dst = dir + "/" + diskName;
   if (::rename(tmp.c_str(), dst.c_str()) != 0) { ::unlink(tmp.c_str()); return Status::IoError; }
-  fsync_path(dir);
+  if (!fsyncPath(dir)) return Status::IoError;
   return Status::Ok;
 }
 
-Status StorageEngine::put_segment(const std::string& file_id, const std::string& disk_name,
-                                  const std::string& bytes, const Sha256Digest& expected_sha) {
+Status StorageEngine::putSegment(const std::string& fileId, const std::string& diskName,
+                                  const std::string& bytes, const Sha256Digest& expectedSha) {
   size_t off = 0;
   Sha256Digest got;
-  Status s = put_segment_stream(
-      file_id, disk_name, bytes.size(),
+  Status s = putSegmentStream(
+      fileId, diskName, bytes.size(),
       [&](char* b, size_t cap) -> size_t {
         size_t n = std::min(cap, bytes.size() - off);
         std::memcpy(b, bytes.data() + off, n);
@@ -210,27 +239,28 @@ Status StorageEngine::put_segment(const std::string& file_id, const std::string&
         return n;
       },
       got);
-  if (!is_ok(s)) return s;
-  if (got != expected_sha) {
+  if (!isOk(s)) return s;
+  if (got != expectedSha) {
     // Remove the bad segment so it is not referenced.
     std::error_code ec;
-    fs::remove(file_path(file_id, disk_name), ec);
+    fs::remove(filePath(fileId, diskName), ec);
     return Status::ChecksumMismatch;
   }
   return Status::Ok;
 }
 
-Status StorageEngine::read_segment(const std::string& file_id, const std::string& disk_name,
+Status StorageEngine::readSegment(const std::string& fileId, const std::string& diskName,
                                    std::string& out) const {
   out.clear();
-  return read_segment_stream(file_id, disk_name,
+  return readSegmentStream(fileId, diskName,
                              [&](const char* b, size_t n) { out.append(b, n); return true; });
 }
 
-Status StorageEngine::read_segment_stream(
-    const std::string& file_id, const std::string& disk_name,
+Status StorageEngine::readSegmentStream(
+    const std::string& fileId, const std::string& diskName,
     const std::function<bool(const char*, size_t)>& sink) const {
-  std::string path = file_path(file_id, disk_name);
+  if (!validComponent(fileId) || !validComponent(diskName)) return Status::InvalidArgument;
+  std::string path = filePath(fileId, diskName);
   int fd = ::open(path.c_str(), O_RDONLY);
   if (fd < 0) return Status::NotFound;
   std::vector<char> buf(kStreamChunkBytes);
@@ -244,23 +274,23 @@ Status StorageEngine::read_segment_stream(
 
 Status StorageEngine::reconstruct(const Manifest& m,
                                   const std::function<bool(const char*, size_t)>& sink,
-                                  Sha256Digest& out_file_sha) const {
+                                  Sha256Digest& outFileSha) const {
   Sha256Stream hasher;
   for (const SegmentRef* s : m.ordered()) {
-    Sha256Stream seg_hasher;
-    Status rs = read_segment_stream(m.file_id, s->disk_name, [&](const char* b, size_t n) {
-      seg_hasher.update(b, n);
+    Sha256Stream segHasher;
+    Status rs = readSegmentStream(m.fileId, s->diskName, [&](const char* b, size_t n) {
+      segHasher.update(b, n);
       hasher.update(b, n);
       return sink(b, n);
     });
-    if (!is_ok(rs)) return rs;
-    if (seg_hasher.finalize() != s->sha) return Status::ChecksumMismatch;
+    if (!isOk(rs)) return rs;
+    if (segHasher.finalize() != s->sha) return Status::ChecksumMismatch;
   }
-  out_file_sha = hasher.finalize();
+  outFileSha = hasher.finalize();
   return Status::Ok;
 }
 
-Status StorageEngine::file_sha(const Manifest& m, Sha256Digest& out) const {
+Status StorageEngine::fileSha(const Manifest& m, Sha256Digest& out) const {
   return reconstruct(m, [](const char*, size_t) { return true; }, out);
 }
 

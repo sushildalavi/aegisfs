@@ -35,20 +35,20 @@ Every process is a single `aegisfs` binary that is simultaneously:
 
 ## 2. Identifiers and the ring
 
-- `ring_id(x) = top 64 bits of SHA-256(x)`. Used for both node IDs (`SHA-256(host:port:nodeuuid)`)
+- `ringId(x) = top 64 bits of SHA-256(x)`. Used for both node IDs (`SHA-256(host:port:nodeuuid)`)
   and file IDs (`SHA-256(filename)`). We **never** use `std::hash` for persistent cross-process IDs.
 - The ring is the sorted set of live member ring IDs. For a filename `f`, the **primary** is the
-  first node whose ring ID ≥ `ring_id(f)` (wrapping around), and replicas are the next 2 **distinct**
+  first node whose ring ID ≥ `ringId(f)` (wrapping around), and replicas are the next 2 **distinct**
   successors. Default replication factor **RF = 3**.
 - Lookup is a binary search over the sorted ring: **O(log N)** per query, not O(1). (Stated honestly.)
 
 ## 3. On-disk layout
 
 ```
-<data_dir>/
+<dataDir>/
   node.id                      # persisted node identity (uuid, ring id)
   membership.snapshot          # last known membership (for faster rejoin)
-  files/<file_id>/
+  files/<fileId>/
     manifest                   # binary manifest (atomic-committed)
     base.seg                   # immutable base segment (from create)
     append-<opid>.seg          # one immutable segment per committed append
@@ -57,8 +57,8 @@ Every process is a single `aegisfs` binary that is simultaneously:
 ```
 
 ### Manifest (per logical file)
-`filename, file_id, create_op_id, version/epoch, [segment refs: {kind, op_id, client_id,
-client_seq, lamport_ts, size, sha256}], replica_state`. Serialized with explicit length-prefixed
+`filename, fileId, createOpId, version/epoch, [segment refs: {kind, opId, clientId,
+clientSeq, lamportTs, size, sha256}], replica_state`. Serialized with explicit length-prefixed
 fields and a trailing CRC; written to `tmp/` then `fsync`+`rename`d over the live manifest.
 
 ## 4. RPC protocol (length-framed, binary-safe)
@@ -75,8 +75,8 @@ Frame = `MAGIC(4) | VERSION(2) | TYPE(2) | HEADER_LEN(4) | HEADER | PAYLOAD_LEN(
 
 1. Client sends `CREATE`/`APPEND` to any node → that node is the **operation coordinator** (temporary,
    per-op; not a cluster leader).
-2. Coordinator computes the 3 replicas from `ring_id(filename)`.
-3. Coordinator assigns an **operation id** = `(client_id, client_seq, lamport_ts)`; `lamport_ts` is a
+2. Coordinator computes the 3 replicas from `ringId(filename)`.
+3. Coordinator assigns an **operation id** = `(clientId, clientSeq, lamportTs)`; `lamportTs` is a
    monotonic logical clock advanced on every op the coordinator sees.
 4. Coordinator writes locally (if it is a replica) and sends `REPLICATE_*` to the other replicas,
    each of which stages the segment (`tmp/`→fsync→rename) and commits its manifest.
@@ -85,21 +85,21 @@ Frame = `MAGIC(4) | VERSION(2) | TYPE(2) | HEADER_LEN(4) | HEADER | PAYLOAD_LEN(
    the op returns `DEGRADED` with the count that committed, and the caller decides (default CLI:
    treat `DEGRADED` as a soft failure and retry). This policy is explicit, not "always available".
 
-## 6. Read path (get / getfromreplica)
+## 6. Read path (get / getFromReplica)
 
 - `get` reads from a replica and verifies SHA-256 of every segment. **Read-your-writes:** the client
-  tracks, per file, the highest `(client_seq)` it has had acknowledged; `get` requires the serving
+  tracks, per file, the highest `(clientSeq)` it has had acknowledged; `get` requires the serving
   replica's manifest to include that op id (else it tries another replica, then blocks up to a bounded
   timeout, then returns `STALE`).
-- `getfromreplica` returns one replica's exact local view with **no read-repair**, for comparison.
+- `getFromReplica` returns one replica's exact local view with **no read-repair**, for comparison.
 
 ## 7. Ordering and convergence
 
-- **Per-client order:** completed append A (lower `client_seq`) always precedes later append B from the
-  same client on every replica, because segments are ordered by `(client_id, client_seq)` within a
+- **Per-client order:** completed append A (lower `clientSeq`) always precedes later append B from the
+  same client on every replica, because segments are ordered by `(clientId, clientSeq)` within a
   client and the client serializes its own appends (waits for ack before issuing the next).
 - **Cross-client order:** segments from different clients are totally ordered by
-  `(lamport_ts, client_id, client_seq)` — a deterministic tie-break — so once the cluster is quiescent
+  `(lamportTs, clientId, clientSeq)` — a deterministic tie-break — so once the cluster is quiescent
   all replicas converge to the identical byte sequence.
 - **merge:** reconciles all reachable designated replicas to the union of committed segments in the
   canonical order, then verifies every replica's reconstructed file has the same SHA-256. Returns
@@ -120,7 +120,7 @@ Frame = `MAGIC(4) | VERSION(2) | TYPE(2) | HEADER_LEN(4) | HEADER | PAYLOAD_LEN(
 ## 9. Concurrency
 
 - Bounded `ThreadPool` for RPC handling; streaming avoids large allocations.
-- Per-file locking (`shared_mutex` keyed by file_id) — **no global cluster lock**. Manifest commits
+- Per-file locking (`shared_mutex` keyed by fileId) — **no global cluster lock**. Manifest commits
   are atomic; concurrent appends to the same file are serialized only at that file's granularity.
 
 ## 10. Diagrams
@@ -131,7 +131,7 @@ graph LR
   subgraph Ring[64-bit ring]
     A[node A] --> B[node B] --> C[node C] --> D[node D] --> E[node E] --> A
   end
-  F["ring_id(file)"] -.->|first successor| C
+  F["ringId(file)"] -.->|first successor| C
   C -->|replica 1| C
   C -->|replica 2| D
   C -->|replica 3| E
@@ -146,7 +146,7 @@ sequenceDiagram
   participant R2 as Replica 2
   participant R3 as Replica 3
   Cl->>Co: CREATE/APPEND (streamed bytes)
-  Co->>Co: spool to tmp, SHA-256, assign op_id + lamport
+  Co->>Co: spool to tmp, SHA-256, assign opId + lamport
   Co->>R1: REPLICATE (primary first; create arbitrates here)
   R1-->>Co: OK / ALREADY_EXISTS
   par fan-out (parallel or sequential)
@@ -176,4 +176,4 @@ stateDiagram-v2
 - **Guarantee:** a file with 3 healthy, durable replicas remains readable after ≤2 node failures.
 - **Not guaranteed:** availability during partitions that leave <1 reachable replica, or durability of
   ops acknowledged as `DEGRADED`. Under partition AegisFS favors consistency (read-your-writes) over
-  availability for the partitioned minority. See `docs/TRADEOFFS.md`.
+  availability for the partitioned minority. See `docs/tradeoffs.md`.

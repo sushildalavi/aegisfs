@@ -14,14 +14,14 @@ Sha256Digest sha256(const void* data, size_t len);
 Sha256Digest sha256(std::string_view s);
 
 // Lowercase hex of a digest (64 chars).
-std::string to_hex(const Sha256Digest& d);
+std::string toHex(const Sha256Digest& d);
 
 // Parse 64-char lowercase hex into a digest. Returns false on malformed input.
-bool from_hex(std::string_view hex, Sha256Digest& out);
+bool fromHex(std::string_view hex, Sha256Digest& out);
 
 // Stable 64-bit ring identifier: the top 64 bits (big-endian) of SHA-256(key).
 // Deterministic across processes and runs; never uses std::hash.
-uint64_t ring_id(std::string_view key);
+uint64_t ringId(std::string_view key);
 
 // Incremental SHA-256 for streaming large files without buffering them.
 class Sha256Stream {
@@ -34,7 +34,7 @@ class Sha256Stream {
   Sha256Digest finalize();
 
  private:
-  void* ctx_;  // opaque EVP_MD_CTX*
+  void* context;  // opaque EVP_MD_CTX*
 };
 
 }  // namespace aegisfs

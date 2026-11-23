@@ -8,11 +8,11 @@ namespace aegisfs {
 
 // A node as seen on the hash ring.
 struct RingNode {
-  std::string node_id;  // stable unique identity (uuid-ish)
+  std::string nodeId;  // stable unique identity (uuid-ish)
   std::string address;  // host:port
-  uint64_t rid{0};      // ring_id(node_id)
+  uint64_t rid{0};      // ringId(nodeId)
   bool operator==(const RingNode& o) const {
-    return node_id == o.node_id && address == o.address && rid == o.rid;
+    return nodeId == o.nodeId && address == o.address && rid == o.rid;
   }
 };
 
@@ -26,31 +26,31 @@ inline constexpr int kVirtualNodesPerNode = 64;
 class Ring {
  public:
   // Rebuild the ring from a member list (order-independent). Ring IDs are recomputed
-  // from node_id so callers cannot inject inconsistent ids.
-  void set_members(std::vector<RingNode> members);
+  // from nodeId so callers cannot inject inconsistent ids.
+  void setMembers(std::vector<RingNode> members);
 
   // Number of distinct members currently on the ring.
-  size_t size() const { return nodes_.size(); }
-  bool empty() const { return nodes_.empty(); }
+  size_t size() const { return ringNodes.size(); }
+  bool empty() const { return ringNodes.empty(); }
 
-  const std::vector<RingNode>& members() const { return nodes_; }
+  const std::vector<RingNode>& members() const { return ringNodes; }
 
   // The ordered set of up to `rf` distinct successor nodes responsible for `filename`.
-  // Primary is the first node with rid >= ring_id(filename), wrapping around the ring.
+  // Primary is the first node with rid >= ringId(filename), wrapping around the ring.
   // Returns fewer than rf only when the ring has fewer than rf members. O(log N) lookup.
   std::vector<RingNode> successors(const std::string& filename, int rf) const;
 
   // The ring position (64-bit id) for a filename.
-  uint64_t file_rid(const std::string& filename) const;
+  uint64_t fileRid(const std::string& filename) const;
 
-  // True if `node_id` is among the rf successors of `filename`.
-  bool is_replica(const std::string& filename, const std::string& node_id, int rf) const;
+  // True if `nodeId` is among the rf successors of `filename`.
+  bool isReplica(const std::string& filename, const std::string& nodeId, int rf) const;
 
   // Index of the first node with rid >= target (wrapping). Precondition: !empty().
-  size_t first_at_or_after(uint64_t target) const;
+  size_t firstAtOrAfter(uint64_t target) const;
 
  private:
-  std::vector<RingNode> nodes_;  // sorted by (rid, node_id), distinct node_id
+  std::vector<RingNode> ringNodes;  // sorted by (rid, nodeId), distinct nodeId
 };
 
 }  // namespace aegisfs

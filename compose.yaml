@@ -2,12 +2,12 @@
 # endpoint, identity, and logs. node0 is the bootstrap seed; the rest join via it.
 #
 # NOTE: Docker is not installed on the original dev host, so this file is provided for portability
-# but is marked NOT RUN in FINAL_REPORT.md. The equivalent process-local cluster (verified) is:
+# but is marked NOT RUN in `buildStatus.json`. The equivalent process-local cluster (verified) is:
 #   scripts/cluster.sh start 10
 #
 # On a Docker host:
 #   docker compose build && docker compose up -d
-#   docker compose exec node0 aegisfs --entry node0:9100 list_mem_ids
+#   docker compose exec node0 aegisfs --entry node0:9100 listMemIds
 name: aegisfs
 
 x-node: &node
@@ -67,6 +67,45 @@ services:
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node9", "--seeds", "node0:9100"]
     ports: ["9109:9100"]
     volumes: ["node9-data:/data"]
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    command: ["/app/gateway.py"]
+    environment:
+      AEGISFS_ENTRY: node0:9100
+      GATEWAY_PORT: "8080"
+      AEGISFS_AUTH_TOKEN: "change-me"
+    ports: ["8080:8080"]
+    depends_on: [node0]
+    networks: [aegis]
+
+  exporter:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    command: ["/app/prometheusExporter.py"]
+    environment:
+      AEGISFS_ENTRY: node0:9100
+      EXPORTER_PORT: "9108"
+    ports: ["9108:9108"]
+    depends_on: [node0]
+    networks: [aegis]
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./metrics/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+    depends_on: [exporter]
+    networks: [aegis]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+    networks: [aegis]
 
 networks:
   aegis: {}

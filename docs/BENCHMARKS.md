@@ -53,10 +53,10 @@ End-to-end latency (mean) and throughput:
   per-replica transfer time exceeds the fan-out overhead.
 - `get` reads from a single replica, so it is unaffected by fan-out mode; it reaches ~530 MB/s at
   100 MiB over loopback. The 100 MiB path confirms large files stream in bounded 1 MiB chunks
-  (no full-file buffering; see `docs/ARCHITECTURE.md` §4).
+  (no full-file buffering; see `docs/architecture.md` §4).
 
 ## Concurrency scaling (create+append throughput)
-`benchmarks/runner/bench_concurrency.sh` drives N concurrent clients, each doing 20 ops
+`benchmarks/runner/benchConcurrency.sh` drives N concurrent clients, each doing 20 ops
 (1 create + 19 appends) on its own file, against a 5-node cluster.
 
 | clients | total ops | wall ms | ops/sec |

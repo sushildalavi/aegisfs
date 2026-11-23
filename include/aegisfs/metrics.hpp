@@ -17,7 +17,7 @@ class Metrics {
   uint64_t get(const std::string& key) const;
 
   // Record a latency sample (microseconds) under a named op.
-  void record_latency(const std::string& op, uint64_t micros);
+  void recordLatency(const std::string& op, uint64_t micros);
 
   struct LatencyStat {
     uint64_t count{0};
@@ -26,13 +26,13 @@ class Metrics {
   };
   LatencyStat latency(const std::string& op) const;
 
-  std::map<std::string, uint64_t> snapshot_counters() const;
+  std::map<std::string, uint64_t> snapshotCounters() const;
 
  private:
   Metrics() = default;
-  mutable std::mutex mu_;
-  std::map<std::string, uint64_t> counters_;
-  std::map<std::string, std::vector<uint64_t>> samples_;
+  mutable std::mutex mutex;
+  std::map<std::string, uint64_t> counters;
+  std::map<std::string, std::vector<uint64_t>> samples;
 };
 
 // RAII latency timer.
@@ -42,8 +42,8 @@ class ScopedTimer {
   ~ScopedTimer();
 
  private:
-  std::string op_;
-  uint64_t start_us_;
+  std::string operation;
+  uint64_t startUs;
 };
 
 }  // namespace aegisfs

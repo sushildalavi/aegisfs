@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Summarize AegisFS benchmark raw CSV into per-(mode,op,size) stats and a Markdown table.
+"""Summarize AegisFS benchmark raw CSV into per-(mode,op,size) stats.
 
 Usage: analyze.py <raw.csv> <out_dir>
 Reads: mode,op,size_kb,rep,latency_ms,bytes_per_s
-Writes: <out_dir>/summary.csv and <out_dir>/summary.md
+Writes: <out_dir>/summary.csv and prints the readable table to stdout.
 Uses only the Python standard library (no external deps), so it runs anywhere.
 """
 import csv
@@ -76,8 +76,6 @@ def main():
         delta = (par["mean_ms"] - seq["mean_ms"]) / seq["mean_ms"] * 100 if seq["mean_ms"] else 0
         lines.append(f"| {size_label(kb)} | {seq['mean_ms']} | {par['mean_ms']} | {delta:+.1f}% |")
 
-    with open(f"{out_dir}/summary.md", "w") as f:
-        f.write("\n".join(lines) + "\n")
     print("\n".join(lines))
 
 

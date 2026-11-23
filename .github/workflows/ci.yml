@@ -35,7 +35,7 @@ jobs:
 
       - name: Smoke test (process-local 3-node)
         if: matrix.sanitizer == 'none'
-        run: ./scripts/smoke_test.sh
+        run: ./scripts/smokeTest.sh
 
   tsan:
     runs-on: ubuntu-latest
@@ -48,8 +48,8 @@ jobs:
       - name: Configure (TSan)
         run: cmake -S . -B build-tsan -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DAEGISFS_ENABLE_TSAN=ON
       - name: Build concurrency + membership tests
-        run: cmake --build build-tsan --target concurrency_test membership_test
+        run: cmake --build build-tsan --target concurrencyTest membershipTest
       - name: Run under ThreadSanitizer
         run: |
-          TSAN_OPTIONS="halt_on_error=1" ./build-tsan/tests/concurrency_test
-          TSAN_OPTIONS="halt_on_error=1" ./build-tsan/tests/membership_test
+          TSAN_OPTIONS="halt_on_error=1" ./build-tsan/tests/concurrencyTest
+          TSAN_OPTIONS="halt_on_error=1" ./build-tsan/tests/membershipTest

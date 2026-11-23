@@ -6,7 +6,7 @@
 
 namespace aegisfs {
 
-static uint64_t now_us() {
+static uint64_t nowUs() {
   return static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::microseconds>(
           std::chrono::steady_clock::now().time_since_epoch())
@@ -19,27 +19,27 @@ Metrics& Metrics::instance() {
 }
 
 void Metrics::incr(const std::string& key, uint64_t by) {
-  std::lock_guard<std::mutex> lk(mu_);
-  counters_[key] += by;
+  std::lock_guard<std::mutex> lk(mutex);
+  counters[key] += by;
 }
 
 uint64_t Metrics::get(const std::string& key) const {
-  std::lock_guard<std::mutex> lk(mu_);
-  auto it = counters_.find(key);
-  return it == counters_.end() ? 0 : it->second;
+  std::lock_guard<std::mutex> lk(mutex);
+  auto it = counters.find(key);
+  return it == counters.end() ? 0 : it->second;
 }
 
-void Metrics::record_latency(const std::string& op, uint64_t micros) {
-  std::lock_guard<std::mutex> lk(mu_);
-  auto& v = samples_[op];
+void Metrics::recordLatency(const std::string& op, uint64_t micros) {
+  std::lock_guard<std::mutex> lk(mutex);
+  auto& v = samples[op];
   if (v.size() < 100000) v.push_back(micros);  // cap memory
 }
 
 Metrics::LatencyStat Metrics::latency(const std::string& op) const {
-  std::lock_guard<std::mutex> lk(mu_);
+  std::lock_guard<std::mutex> lk(mutex);
   LatencyStat st;
-  auto it = samples_.find(op);
-  if (it == samples_.end() || it->second.empty()) return st;
+  auto it = samples.find(op);
+  if (it == samples.end() || it->second.empty()) return st;
   std::vector<uint64_t> v = it->second;
   std::sort(v.begin(), v.end());
   auto pct = [&](double p) { return v[std::min(v.size() - 1, static_cast<size_t>(p * v.size()))]; };
@@ -52,12 +52,12 @@ Metrics::LatencyStat Metrics::latency(const std::string& op) const {
   return st;
 }
 
-std::map<std::string, uint64_t> Metrics::snapshot_counters() const {
-  std::lock_guard<std::mutex> lk(mu_);
-  return counters_;
+std::map<std::string, uint64_t> Metrics::snapshotCounters() const {
+  std::lock_guard<std::mutex> lk(mutex);
+  return counters;
 }
 
-ScopedTimer::ScopedTimer(std::string op) : op_(std::move(op)), start_us_(now_us()) {}
-ScopedTimer::~ScopedTimer() { Metrics::instance().record_latency(op_, now_us() - start_us_); }
+ScopedTimer::ScopedTimer(std::string op) : operation(std::move(op)), startUs(nowUs()) {}
+ScopedTimer::~ScopedTimer() { Metrics::instance().recordLatency(operation, nowUs() - startUs); }
 
 }  // namespace aegisfs

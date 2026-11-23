@@ -23,7 +23,7 @@ enum class Status : int32_t {
   Conflict = 12,
 };
 
-inline std::string_view status_name(Status s) {
+inline std::string_view statusName(Status s) {
   switch (s) {
     case Status::Ok: return "OK";
     case Status::AlreadyExists: return "ALREADY_EXISTS";
@@ -42,7 +42,7 @@ inline std::string_view status_name(Status s) {
   return "UNKNOWN";
 }
 
-inline bool is_ok(Status s) { return s == Status::Ok; }
+inline bool isOk(Status s) { return s == Status::Ok; }
 
 // A minimal Result<T> carrying a status and (on Ok) a value.
 template <typename T>

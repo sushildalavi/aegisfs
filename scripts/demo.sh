@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Full recruiter-facing demonstration on a 10-node process-local cluster.
 # Exercises: membership/ring, replicated create, 3-replica placement, checksum-verified get,
-# concurrent multiappend, merge + 3-replica checksum equality, TWO-node failure read,
+# concurrent multiAppend, merge + 3-replica checksum equality, TWO-node failure read,
 # re-replication, and final integrity. Exits NONZERO on any failed assertion.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,9 +28,9 @@ say "Launch $N-node cluster"
 rm -rf "$ROOT/run"
 "$CLUSTER" start $N >/dev/null
 sleep 5
-MEM=$("$BIN" --entry "$E" list_mem_ids | wc -l | tr -d ' ')
+MEM=$("$BIN" --entry "$E" listMemIds | wc -l | tr -d ' ')
 [ "$MEM" -eq "$N" ] && ok "membership converged: $MEM nodes" || bad "expected $N members, saw $MEM"
-"$BIN" --entry "$E" list_mem_ids | head -5 | sed 's/^/     /'
+"$BIN" --entry "$E" listMemIds | head -5 | sed 's/^/     /'
 
 say "Create a 10 MiB file and show its 3 designated replicas"
 head -c $((10*1024*1024)) /dev/urandom > "$TMP/orig.bin"
@@ -47,13 +47,13 @@ say "Get the file back and verify SHA-256"
 "$BIN" --entry "127.0.0.1:$((BASE+5))" get demo/payload "$TMP/get.bin" >/dev/null
 [ "$(sha "$TMP/get.bin")" = "$ORIG_SHA" ] && ok "get byte-identical ($ORIG_SHA)" || bad "get SHA mismatch"
 
-say "Concurrent multiappend from 3 nodes"
+say "Concurrent multiAppend from 3 nodes"
 printf "AAAA\n" > "$TMP/a"; printf "BBBBBB\n" > "$TMP/b"; printf "CC\n" > "$TMP/c"
-"$BIN" --entry "$E" multiappend demo/payload \
+"$BIN" --entry "$E" multiAppend demo/payload \
    "127.0.0.1:$((BASE+1))" "$TMP/a" \
    "127.0.0.1:$((BASE+2))" "$TMP/b" \
    "127.0.0.1:$((BASE+3))" "$TMP/c" | sed 's/^/     /'
-ok "multiappend issued from 3 nodes"
+ok "multiAppend issued from 3 nodes"
 
 say "Merge and compare all 3 replica checksums"
 MRES="$("$BIN" --entry "$E" merge demo/payload)"
@@ -61,7 +61,7 @@ echo "$MRES" | sed 's/^/     /'
 [ "$(getfield status "$MRES")" = "OK" ] && ok "merge OK" || bad "merge status $(getfield status "$MRES")"
 declare -a SHAS=()
 for r in "$R0" "$R1" "$R2"; do
-  "$BIN" --entry "$E" getfromreplica "$r" demo/payload "$TMP/rep.bin" >/dev/null 2>&1
+  "$BIN" --entry "$E" getFromReplica "$r" demo/payload "$TMP/rep.bin" >/dev/null 2>&1
   SHAS+=("$(sha "$TMP/rep.bin")")
 done
 if [ "${SHAS[0]}" = "${SHAS[1]}" ] && [ "${SHAS[1]}" = "${SHAS[2]}" ]; then
@@ -91,7 +91,7 @@ LS2="$("$BIN" --entry "127.0.0.1:$((BASE+ENTRY_IDX))" ls demo/payload)"
 NEW=0
 for i in 0 1 2; do
   a="$(getfield r${i}_addr "$LS2")"
-  if "$BIN" --entry "127.0.0.1:$((BASE+ENTRY_IDX))" getfromreplica "$a" demo/payload "$TMP/rr.bin" >/dev/null 2>&1; then
+  if "$BIN" --entry "127.0.0.1:$((BASE+ENTRY_IDX))" getFromReplica "$a" demo/payload "$TMP/rr.bin" >/dev/null 2>&1; then
     [ "$(sha "$TMP/rr.bin")" = "$MERGED_SHA" ] && NEW=$((NEW+1))
   fi
 done

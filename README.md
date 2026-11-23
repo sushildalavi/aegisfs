@@ -42,7 +42,7 @@ ctest --test-dir build --output-on-failure
 Docker is optional (`compose.yaml` provided). Without it, run nodes as local processes:
 ```
 scripts/cluster.sh start 10          # 10 nodes on 127.0.0.1:9100..9109
-./build/aegisfs --entry 127.0.0.1:9100 list_mem_ids
+./build/aegisfs --entry 127.0.0.1:9100 listMemIds
 ```
 ```
 echo "hello" > /tmp/hello.txt
@@ -56,7 +56,7 @@ scripts/cluster.sh stop
 ```
 $ aegisfs --entry 127.0.0.1:9100 create ./payload demo/payload
 status=OK
-file_id=85d92d92cccf9f24
+fileId=85d92d92cccf9f24
 committed=3
 rf=3
 r0=127.0.0.1:9106
@@ -66,7 +66,7 @@ r2=127.0.0.1:9100
 $ aegisfs --entry 127.0.0.1:9100 merge demo/payload
 status=OK
 replicas=3
-file_sha=4c10d5b6c4aa73e3f02515d724325f15356cf4f4bbaed25e411347ebb5b2e81e
+fileSha=4c10d5b6c4aa73e3f02515d724325f15356cf4f4bbaed25e411347ebb5b2e81e
 ```
 
 ## Command reference
@@ -74,13 +74,14 @@ file_sha=4c10d5b6c4aa73e3f02515d724325f15356cf4f4bbaed25e411347ebb5b2e81e
 |---------|---------|
 | `create <local> <name>` | Upload a new file. Only the first create for a name wins (else `ALREADY_EXISTS`). |
 | `get <name> <local>` | Download, SHA-256 verified; includes this client's own prior appends (read-your-writes). |
+| `getQuorum <name> <local>` | Majority read; selects the highest reachable replica version. |
 | `append <local> <name>` | Append bytes to an existing file (ordered per client). Missing file → `NOT_FOUND`. |
 | `merge <name>` | Reconcile all reachable replicas to one byte-identical committed view. |
 | `ls <name>` | Show file id and the 3 designated replica addresses. |
-| `liststore` | List files stored on the entry node (name, size, version, segments). |
-| `getfromreplica <addr> <name> <local>` | Fetch one replica's exact bytes, no read-repair. |
-| `list_mem_ids` | List members sorted by ring id with state + incarnation. |
-| `multiappend <name> <node> <file> [...]` | Concurrent appends initiated from several nodes. |
+| `listStore` | List files stored on the entry node (name, size, version, segments). |
+| `getFromReplica <addr> <name> <local>` | Fetch one replica's exact bytes, no read-repair. |
+| `listMemIds` | List members sorted by ring id with state + incarnation. |
+| `multiAppend <name> <node> <file> [...]` | Concurrent appends initiated from several nodes. |
 | `status` / `health` | Node status / liveness. |
 
 Exit codes are nonzero on failure so scripts can detect real success/failure.
@@ -92,30 +93,32 @@ Exit codes are nonzero on failure so scripts can detect real success/failure.
   committed count (weaker durability, surfaced explicitly — never a silent success).
 - **Reads:** `get` returns `STALE` rather than serving data that does not meet the client's
   read-your-writes watermark. AegisFS is **CP-leaning** for a partitioned minority.
-- Routing is **O(log N)** (binary search on the ring), not O(1). See `docs/TRADEOFFS.md`.
+- Routing is **O(log N)** (binary search on the ring), not O(1). See `docs/tradeoffs.md`.
 
 ## Testing
 - Unit + integration (3/5/10-node, 64 MiB streaming) + concurrency + chaos (2-node kill,
   re-replication, restart recovery, join, graceful leave, anti-entropy repair) + stress —
   **85+ tests**, all passing.
-- `scripts/smoke_test.sh` — 3-node end-to-end. `scripts/demo.sh` — 10-node demo with fault
+- `scripts/smokeTest.sh` — 3-node end-to-end. `scripts/demo.sh` — 10-node demo with fault
   injection (asserts, exits nonzero on failure).
 - Clean under **AddressSanitizer/UBSan**; concurrent paths clean under **ThreadSanitizer**.
 
 ## Documentation
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — components, protocol, write/read paths, failure model
-- [`docs/INVARIANTS.md`](docs/INVARIANTS.md) — invariants mapped to tests
-- [`docs/TRADEOFFS.md`](docs/TRADEOFFS.md) — design decisions and alternatives
-- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — runbook
-- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — real measurements
-- [`docs/INTERVIEW_GUIDE.md`](docs/INTERVIEW_GUIDE.md) — Q&A on the design
-- [`docs/RESUME_CLAIMS.md`](docs/RESUME_CLAIMS.md) — verified resume bullets
+- [`docs/architecture.md`](docs/architecture.md) — components, protocol, write/read paths, failure model
+- [`docs/invariants.md`](docs/invariants.md) — invariants mapped to tests
+- [`docs/tradeoffs.md`](docs/tradeoffs.md) — design decisions and alternatives
+- [`docs/operations.md`](docs/operations.md) — runbook
+- [`docs/benchmarks.md`](docs/benchmarks.md) — real measurements
+- [`docs/interviewGuide.md`](docs/interviewGuide.md) — Q&A on the design
+- [context.d](context.d) — canonical project context, evidence, and resume-ready findings
 
 ## Limitations (honest)
 - Replicas of one file are its 3 ring successors (no sub-file striping across many nodes).
 - Loopback-only benchmarks; a single-host 10-node cluster shares CPU/disk.
 - Docker Compose topology is provided but was **not run** on the dev host (no Docker installed);
   the process-local path is what has been exercised and verified.
+- Optional TLS, REST gateway, Prometheus exporter, and Grafana dashboard are documented in
+  [`docs/extensions.md`](docs/extensions.md).
 
 ## License
 MIT — see [LICENSE](LICENSE).

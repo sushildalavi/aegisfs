@@ -13,9 +13,9 @@ namespace aegisfs {
 // by capping its depth (enqueue blocks when full).
 class ThreadPool {
  public:
-  explicit ThreadPool(size_t workers, size_t max_queue = 1024) : max_queue_(max_queue) {
+  explicit ThreadPool(size_t workers, size_t maxQueue = 1024) : maxQueue(maxQueue) {
     for (size_t i = 0; i < workers; ++i) {
-      threads_.emplace_back([this] { run(); });
+      threads.emplace_back([this] { run(); });
     }
   }
   ~ThreadPool() { shutdown(); }
@@ -24,22 +24,22 @@ class ThreadPool {
   ThreadPool& operator=(const ThreadPool&) = delete;
 
   void submit(std::function<void()> task) {
-    std::unique_lock<std::mutex> lk(mu_);
-    not_full_.wait(lk, [this] { return stop_ || queue_.size() < max_queue_; });
-    if (stop_) return;
-    queue_.push(std::move(task));
-    not_empty_.notify_one();
+    std::unique_lock<std::mutex> lk(mutex);
+    notFull.wait(lk, [this] { return stopped || queue.size() < maxQueue; });
+    if (stopped) return;
+    queue.push(std::move(task));
+    notEmpty.notify_one();
   }
 
   void shutdown() {
     {
-      std::lock_guard<std::mutex> lk(mu_);
-      if (stop_) return;
-      stop_ = true;
+      std::lock_guard<std::mutex> lk(mutex);
+      if (stopped) return;
+      stopped = true;
     }
-    not_empty_.notify_all();
-    not_full_.notify_all();
-    for (auto& t : threads_) {
+    notEmpty.notify_all();
+    notFull.notify_all();
+    for (auto& t : threads) {
       if (t.joinable()) t.join();
     }
   }
@@ -49,24 +49,24 @@ class ThreadPool {
     for (;;) {
       std::function<void()> task;
       {
-        std::unique_lock<std::mutex> lk(mu_);
-        not_empty_.wait(lk, [this] { return stop_ || !queue_.empty(); });
-        if (stop_ && queue_.empty()) return;
-        task = std::move(queue_.front());
-        queue_.pop();
-        not_full_.notify_one();
+        std::unique_lock<std::mutex> lk(mutex);
+        notEmpty.wait(lk, [this] { return stopped || !queue.empty(); });
+        if (stopped && queue.empty()) return;
+        task = std::move(queue.front());
+        queue.pop();
+        notFull.notify_one();
       }
       task();
     }
   }
 
-  std::mutex mu_;
-  std::condition_variable not_empty_;
-  std::condition_variable not_full_;
-  std::queue<std::function<void()>> queue_;
-  std::vector<std::thread> threads_;
-  size_t max_queue_;
-  bool stop_{false};
+  std::mutex mutex;
+  std::condition_variable notEmpty;
+  std::condition_variable notFull;
+  std::queue<std::function<void()>> queue;
+  std::vector<std::thread> threads;
+  size_t maxQueue;
+  bool stopped{false};
 };
 
 }  // namespace aegisfs

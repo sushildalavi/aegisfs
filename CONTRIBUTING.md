@@ -13,7 +13,7 @@ On macOS, install deps with Homebrew: `brew install cmake ninja openssl@3`.
 
 ## Before you open a PR
 1. `ctest --test-dir build` is green (unit + integration + concurrency + chaos).
-2. `scripts/smoke_test.sh` passes.
+2. `scripts/smokeTest.sh` passes.
 3. For concurrency-touching changes, build with `-DAEGISFS_ENABLE_TSAN=ON` and run the affected
    tests under ThreadSanitizer.
 4. For memory-touching changes, build with `-DAEGISFS_ENABLE_ASAN=ON`.
@@ -25,7 +25,7 @@ Conventional commits: `feat(scope): …`, `fix(scope): …`, `test(scope): …`,
 AI/co-author trailers.
 
 ## Testing philosophy
-- Every new invariant gets a test (see `docs/INVARIANTS.md`).
+- Every new invariant gets a test (see `docs/invariants.md`).
 - No fabricated output or benchmark numbers — measure, then report, including negative results.
 - Prefer real process/in-process clusters over mocks for distributed behavior.
 

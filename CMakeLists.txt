@@ -41,7 +41,7 @@ find_package(OpenSSL REQUIRED)
 find_package(Threads REQUIRED)
 
 # ---- Core library ----
-add_library(aegisfs_core
+add_library(aegisfsCore
   src/hash.cpp
   src/ring.cpp
   src/protocol.cpp
@@ -55,12 +55,12 @@ add_library(aegisfs_core
   src/node.cpp
   src/metrics.cpp
 )
-target_include_directories(aegisfs_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(aegisfs_core PUBLIC OpenSSL::Crypto Threads::Threads)
+target_include_directories(aegisfsCore PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(aegisfsCore PUBLIC OpenSSL::Crypto OpenSSL::SSL Threads::Threads)
 
 # ---- Executable ----
 add_executable(aegisfs src/main.cpp)
-target_link_libraries(aegisfs PRIVATE aegisfs_core)
+target_link_libraries(aegisfs PRIVATE aegisfsCore)
 
 # ---- Tests ----
 if(AEGISFS_BUILD_TESTS)

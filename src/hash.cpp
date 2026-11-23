@@ -16,7 +16,7 @@ Sha256Digest sha256(const void* data, size_t len) {
 
 Sha256Digest sha256(std::string_view s) { return sha256(s.data(), s.size()); }
 
-std::string to_hex(const Sha256Digest& d) {
+std::string toHex(const Sha256Digest& d) {
   static const char* kHex = "0123456789abcdef";
   std::string out;
   out.resize(d.size() * 2);
@@ -27,25 +27,25 @@ std::string to_hex(const Sha256Digest& d) {
   return out;
 }
 
-static int hex_val(char c) {
+static int hexVal(char c) {
   if (c >= '0' && c <= '9') return c - '0';
   if (c >= 'a' && c <= 'f') return c - 'a' + 10;
   if (c >= 'A' && c <= 'F') return c - 'A' + 10;
   return -1;
 }
 
-bool from_hex(std::string_view hex, Sha256Digest& out) {
+bool fromHex(std::string_view hex, Sha256Digest& out) {
   if (hex.size() != out.size() * 2) return false;
   for (size_t i = 0; i < out.size(); ++i) {
-    int hi = hex_val(hex[2 * i]);
-    int lo = hex_val(hex[2 * i + 1]);
+    int hi = hexVal(hex[2 * i]);
+    int lo = hexVal(hex[2 * i + 1]);
     if (hi < 0 || lo < 0) return false;
     out[i] = static_cast<uint8_t>((hi << 4) | lo);
   }
   return true;
 }
 
-uint64_t ring_id(std::string_view key) {
+uint64_t ringId(std::string_view key) {
   Sha256Digest d = sha256(key);
   uint64_t v = 0;
   for (int i = 0; i < 8; ++i) {
@@ -60,22 +60,22 @@ Sha256Stream::Sha256Stream() {
     if (ctx) EVP_MD_CTX_free(ctx);
     throw std::runtime_error("failed to init SHA-256 context");
   }
-  ctx_ = ctx;
+  context = ctx;
 }
 
 Sha256Stream::~Sha256Stream() {
-  if (ctx_) EVP_MD_CTX_free(static_cast<EVP_MD_CTX*>(ctx_));
+  if (context) EVP_MD_CTX_free(static_cast<EVP_MD_CTX*>(context));
 }
 
 void Sha256Stream::update(const void* data, size_t len) {
   if (len == 0) return;
-  EVP_DigestUpdate(static_cast<EVP_MD_CTX*>(ctx_), data, len);
+  EVP_DigestUpdate(static_cast<EVP_MD_CTX*>(context), data, len);
 }
 
 Sha256Digest Sha256Stream::finalize() {
   Sha256Digest out{};
   unsigned int n = 0;
-  EVP_DigestFinal_ex(static_cast<EVP_MD_CTX*>(ctx_), out.data(), &n);
+  EVP_DigestFinal_ex(static_cast<EVP_MD_CTX*>(context), out.data(), &n);
   return out;
 }
 
