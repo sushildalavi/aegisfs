@@ -50,7 +50,10 @@ def connect(settings, use_keyspace=True):
     if settings.username:
         auth = PlainTextAuthProvider(settings.username, settings.password)
     cluster = Cluster(settings.contact_points, port=settings.port, auth_provider=auth,
-                      ssl_context=build_ssl_context(settings), execution_profiles=profiles,
+                      ssl_context=build_ssl_context(settings),
+                      ssl_options=({"server_hostname": settings.tls_server_name}
+                                   if settings.tls and settings.tls_server_name else None),
+                      execution_profiles=profiles,
                       connect_timeout=settings.connect_timeout)
     try:
         session = cluster.connect(settings.keyspace) if use_keyspace else cluster.connect()

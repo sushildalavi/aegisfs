@@ -22,13 +22,14 @@ if [ ! -f "$DIR/server.p12" ] || [ ! -f "$DIR/index.pass" ]; then
     cd "$DIR"
     umask 077
     # Python 3.13+ with OpenSSL 3 verifies strictly: a CA needs basicConstraints and keyUsage, and
-    # the server certificate needs its own usage extensions and a matching subjectAltName.
+    # the server certificate needs its own usage extensions, key identifiers (the CA's subject key
+    # identifier and the server's authority key identifier) and a matching subjectAltName.
     openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=aegis-cassandra-dev-ca" \
       -addext "basicConstraints=critical,CA:TRUE" -addext "keyUsage=critical,keyCertSign,cRLSign" \
-      -keyout ca.key -out ca.pem >/dev/null 2>&1
+      -addext "subjectKeyIdentifier=hash" -keyout ca.key -out ca.pem >/dev/null 2>&1
     openssl req -newkey rsa:2048 -nodes -subj "/CN=cassandra-secure" -keyout server.key \
       -out server.csr >/dev/null 2>&1
-    printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=IP:127.0.0.1,DNS:localhost,DNS:cassandra-secure\n' > server.ext
+    printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid\nsubjectAltName=IP:127.0.0.1,DNS:localhost,DNS:cassandra-secure\n' > server.ext
     openssl x509 -req -in server.csr -CA ca.pem -CAkey ca.key -CAcreateserial -days 30 \
       -extfile server.ext -out server.pem >/dev/null 2>&1
     openssl rand -hex 16 > keystore.pass

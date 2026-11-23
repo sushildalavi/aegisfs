@@ -51,6 +51,7 @@ KEYSPACE = "aegis_it_" + uuid.uuid4().hex[:8]
 RUN = uuid.uuid4().hex[:8]  # prefix for file names so runs never collide
 
 SECURE_DIR = os.environ.get("AEGIS_CASS_SECURE_DIR") or None
+SERVER_NAME = os.environ.get("AEGISFS_INT_CASSANDRA_TLS_SERVER_NAME") or None  # when the contact point is a DNS name
 STATE = {"cassandra": None, "aegis": None, "reason": ""}
 
 
@@ -59,7 +60,8 @@ def secure_values():
     if not SECURE_DIR:
         return {}
     return dict(tls=True, allow_insecure=False, tls_ca_file=os.path.join(SECURE_DIR, "ca.pem"),
-                username="aegis_index", password=slurp(os.path.join(SECURE_DIR, "index.pass")).decode().strip())
+                username="aegis_index", password=slurp(os.path.join(SECURE_DIR, "index.pass")).decode().strip(),
+                tls_server_name=SERVER_NAME)
 
 
 def base_settings(**kw):
@@ -83,7 +85,10 @@ def setUpModule():
         STATE["cassandra"] = False
         STATE["reason"] = str(exc)
     if STATE["cassandra"]:
-        STATE["aegis"] = aegis_client().health()
+        try:
+            STATE["aegis"] = aegis_client().health()
+        except OSError:  # the binary cannot run here (for example a macOS binary inside Linux)
+            STATE["aegis"] = False
     if REQUIRE and not STATE["cassandra"]:
         raise RuntimeError("AEGISFS_INT_CASSANDRA_LIVE=1 but Cassandra is not reachable: %s" % STATE["reason"])
     if REQUIRE and not STATE["aegis"]:
@@ -144,6 +149,8 @@ class LiveCase(unittest.TestCase):
                         "AEGISFS_INT_CASSANDRA_TLS_CA_FILE": os.path.join(SECURE_DIR, "ca.pem"),
                         "AEGISFS_INT_CASSANDRA_USERNAME": "aegis_index",
                         "AEGISFS_INT_CASSANDRA_PASSWORD_FILE": os.path.join(SECURE_DIR, "index.pass")})
+            if SERVER_NAME:
+                env["AEGISFS_INT_CASSANDRA_TLS_SERVER_NAME"] = SERVER_NAME
         saved = {k: os.environ.get(k) for k in env}
         os.environ.update(env)
         out, err = io.StringIO(), io.StringIO()
@@ -266,10 +273,14 @@ class SecureTest(LiveCase):
 
     def test_right_user_password_file_and_ca_connect(self):
         from aegisfsIntegrations.cassandra import connection
-        env = {"AEGISFS_INT_CASSANDRA_TLS": "true", "AEGISFS_INT_CASSANDRA_TLS_CA_FILE": os.path.join(SECURE_DIR, "ca.pem"),
+        env = {"AEGISFS_INT_CASSANDRA_CONTACT_POINTS": ",".join(self.settings.contact_points),
+               "AEGISFS_INT_CASSANDRA_PORT": str(self.settings.port),
+               "AEGISFS_INT_CASSANDRA_TLS": "true", "AEGISFS_INT_CASSANDRA_TLS_CA_FILE": os.path.join(SECURE_DIR, "ca.pem"),
                "AEGISFS_INT_CASSANDRA_USERNAME": "aegis_index",
                "AEGISFS_INT_CASSANDRA_PASSWORD_FILE": os.path.join(SECURE_DIR, "index.pass"),
                "AEGISFS_INT_CASSANDRA_KEYSPACE": KEYSPACE}
+        if SERVER_NAME:
+            env["AEGISFS_INT_CASSANDRA_TLS_SERVER_NAME"] = SERVER_NAME
         st = Settings.from_config(Config({}, env))  # the password comes from the file
         self.assertEqual(st.password, self.password)
         cluster, session = connection.connect(st)
@@ -304,6 +315,8 @@ class SecureTest(LiveCase):
                "AEGISFS_INT_CASSANDRA_TLS": "true", "AEGISFS_INT_CASSANDRA_TLS_CA_FILE": os.path.join(SECURE_DIR, "ca.pem"),
                "AEGISFS_INT_CASSANDRA_USERNAME": "aegis_index", "AEGISFS_INT_CASSANDRA_PASSWORD_FILE": path,
                "AEGISFS_INT_CASSANDRA_SPOOL_DIR": self.settings.spool_dir}
+        if SERVER_NAME:
+            env["AEGISFS_INT_CASSANDRA_TLS_SERVER_NAME"] = SERVER_NAME
         saved = {k: os.environ.get(k) for k in env}
         os.environ.update(env)
         out, err = io.StringIO(), io.StringIO()
@@ -342,7 +355,7 @@ class SecureTest(LiveCase):
                                     "username": "aegis_index",
                                     "password_file": os.path.join(SECURE_DIR, "index.pass"),
                                     "contact_points": self.settings.contact_points, "port": self.settings.port,
-                                    "keyspace": KEYSPACE, "spool_dir": self.settings.spool_dir}}, {})
+                                    "tls_server_name": SERVER_NAME, "keyspace": KEYSPACE, "spool_dir": self.settings.spool_dir}}, {})
         with self.assertRaises(cli.IntegrationUnavailable):
             commands.try_open_store(commands.settings_for(args, cfg))
         self.assertEqual(self.spool.depth(), 0)

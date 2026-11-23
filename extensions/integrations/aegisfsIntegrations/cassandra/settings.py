@@ -28,6 +28,7 @@ class Settings:
     tls: bool = True
     tls_ca_file: Optional[str] = None
     tls_verify: bool = True
+    tls_server_name: Optional[str] = None
     allow_insecure: bool = False
     read_consistency: str = "LOCAL_QUORUM"
     write_consistency: str = "LOCAL_QUORUM"
@@ -58,6 +59,7 @@ class Settings:
         s.tls = cfg.get_bool(AREA, "tls", True, o.get("tls"))
         s.tls_ca_file = get("tls_ca_file") or None
         s.tls_verify = cfg.get_bool(AREA, "tls_verify", True, o.get("tls_verify"))
+        s.tls_server_name = get("tls_server_name") or None
         s.allow_insecure = cfg.get_bool(AREA, "allow_insecure", False, o.get("allow_insecure"))
         s.read_consistency = str(get("read_consistency", "LOCAL_QUORUM")).upper()
         s.write_consistency = str(get("write_consistency", "LOCAL_QUORUM")).upper()
@@ -122,7 +124,8 @@ class Settings:
         return {
             "contact_points": self.contact_points, "port": self.port, "local_dc": self.local_dc,
             "keyspace": self.keyspace, "username": self.username, "tls": self.tls,
-            "tls_verify": self.tls_verify, "allow_insecure": self.allow_insecure,
+            "tls_verify": self.tls_verify, "tls_server_name": self.tls_server_name,
+            "allow_insecure": self.allow_insecure,
             "read_consistency": self.read_consistency, "write_consistency": self.write_consistency,
             "replication": self.replication_cql(), "bucket_count": self.bucket_count,
             "spool_dir": self.spool_dir,
