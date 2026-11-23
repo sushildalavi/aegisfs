@@ -1,5 +1,6 @@
-# Multi-stage build for an AegisFS node image, used by compose.yaml to launch a 10-node cluster.
-# scripts/cluster.sh provides the same process-local behavior without Docker.
+# AegisFS node image. Build from the repo root:
+#   docker build -f deploy/docker/node.Dockerfile -t aegisfs .
+# compose.yaml in this folder uses it to start a 10-node cluster.
 FROM ubuntu:24.04 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake ninja-build clang libssl-dev ca-certificates git \

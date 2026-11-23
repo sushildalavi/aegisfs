@@ -2,14 +2,16 @@
 # endpoint, identity, and logs. node0 is the bootstrap seed; the rest join via it.
 #
 # Usage:
-#   docker compose build && docker compose up -d
-#   docker compose exec node0 aegisfs --entry node0:9100 listMemIds
+#   docker compose -f deploy/docker/compose.yaml up -d --build
+#   docker compose -f deploy/docker/compose.yaml exec node0 aegisfs --entry node0:9100 listMemIds
 #
-# scripts/cluster.sh start 10 provides the same topology as process-local nodes, no Docker needed.
+# scripts/cluster.sh start 10 gives the same topology as local processes, without Docker.
 name: aegisfs
 
 x-node: &node
-  build: .
+  build:
+    context: ../..
+    dockerfile: deploy/docker/node.Dockerfile
   restart: unless-stopped
   networks: [aegis]
 
@@ -68,8 +70,8 @@ services:
 
   gateway:
     build:
-      context: .
-      dockerfile: extensions/gateway/Dockerfile
+      context: ../..
+      dockerfile: deploy/docker/gateway.Dockerfile
     command: ["/app/gateway.py"]
     environment:
       AEGISFS_ENTRY: node0:9100
@@ -81,9 +83,9 @@ services:
 
   exporter:
     build:
-      context: .
-      dockerfile: extensions/gateway/Dockerfile
-    command: ["/app/prometheusExporter.py"]
+      context: ../..
+      dockerfile: deploy/docker/gateway.Dockerfile
+    command: ["/app/exporter.py"]
     environment:
       AEGISFS_ENTRY: node0:9100
       EXPORTER_PORT: "9108"
@@ -94,7 +96,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.53.0
     volumes:
-      - ./extensions/metrics/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../../extensions/metrics/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports: ["9090:9090"]
     depends_on: [exporter]
     networks: [aegis]

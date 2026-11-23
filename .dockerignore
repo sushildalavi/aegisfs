@@ -1,0 +1,8 @@
+.git
+build/
+build-*/
+run/
+run-bench/
+data/
+benchmarks/results/
+*.log
