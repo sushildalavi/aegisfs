@@ -213,6 +213,24 @@ void Node::hReplicate(Conn& c, Fields& h, uint64_t plen, bool isBase) {
     return;
   }
   observeLamport(seg.lamportTs);
+  // Check idempotency before writing the incoming bytes.  Replaying an operation with the
+  // same disk name must never overwrite the already committed segment before the manifest
+  // short-circuits the operation.  A mismatched replay is rejected instead of being allowed
+  // to replace committed data.
+  Manifest existing;
+  if (storageEngine->loadManifest(fileId, existing)) {
+    for (const auto& committed : existing.segments) {
+      if (committed.opId != seg.opId) continue;
+      Status discard = discardPayload(c, plen);
+      if (!isOk(discard)) return;
+      bool same = committed.kind == seg.kind && committed.clientId == seg.clientId &&
+                  committed.clientSeq == seg.clientSeq &&
+                  committed.lamportTs == seg.lamportTs && committed.size == seg.size &&
+                  committed.sha == seg.sha && committed.diskName == seg.diskName;
+      repl::sendReply(c, same ? Status::Ok : Status::ChecksumMismatch);
+      return;
+    }
+  }
   // Spool the payload to a temp file (verifying its SHA), then apply under the per-file lock.
   Sha256Digest got;
   std::string tmp;
@@ -251,12 +269,25 @@ void Node::hFetchManifest(Conn& c, Frame& fr) {
 void Node::hFetchSegment(Conn& c, Frame& fr) {
   std::string fileId = fr.header.getOr("fileId");
   std::string disk = fr.header.getOr("disk");
-  // Determine size via manifest
+  // Authorize the requested segment through the committed manifest before opening any path.
+  // This keeps the internal fetch RPC from turning a disk name into an arbitrary file read.
   Manifest m;
   uint64_t size = 0;
-  if (storageEngine->loadManifest(fileId, m)) {
-    for (const auto& s : m.segments)
-      if (s.diskName == disk) size = s.size;
+  bool known = false;
+  if (!storageEngine->loadManifest(fileId, m)) {
+    repl::sendReply(c, Status::NotFound);
+    return;
+  }
+  for (const auto& s : m.segments) {
+    if (s.diskName == disk) {
+      size = s.size;
+      known = true;
+      break;
+    }
+  }
+  if (!known) {
+    repl::sendReply(c, Status::NotFound);
+    return;
   }
   int fd = ::open((storageEngine->dataDir() + "/files/" + fileId + "/" + disk).c_str(), O_RDONLY);
   if (fd < 0) {
@@ -276,6 +307,8 @@ void Node::hFetchSegment(Conn& c, Frame& fr) {
 
 void Node::hGetFromReplica(Conn& c, Frame& fr) {
   std::string filename = fr.header.getOr("file");
+  std::string clientId = fr.header.getOr("clientId");
+  uint64_t requiredSeq = fr.header.getU64("requiredSeq");
   std::string fileId = makeFileId(filename);
   Manifest m;
   if (!storageEngine->loadManifest(fileId, m)) {
@@ -283,6 +316,16 @@ void Node::hGetFromReplica(Conn& c, Frame& fr) {
     h.setI64("status", static_cast<int64_t>(Status::NotFound));
     writeFrame(c, MsgType::Reply, h, "");
     return;
+  }
+  if (!clientId.empty() && requiredSeq > 0) {
+    uint64_t maxSeq = 0;
+    for (const auto& s : m.segments) {
+      if (s.clientId == clientId) maxSeq = std::max(maxSeq, s.clientSeq);
+    }
+    if (maxSeq < requiredSeq) {
+      repl::sendReply(c, Status::Stale);
+      return;
+    }
   }
   uint64_t total = m.totalSize();
   // First pass: compute the logical file SHA-256 (also verifies each segment checksum) so the
@@ -718,7 +761,10 @@ void Node::hGet(Conn& c, Frame& fr) {
   if (quorumRead) h.set("readMode", "quorum");
   // Pull from replica, forward to client. Use a pipe via buffered relay.
   std::string host; int port;
-  parseEndpoint(chosenAddr, host, port);
+  if (!parseEndpoint(chosenAddr, host, port)) {
+    repl::sendReply(c, Status::InvalidArgument);
+    return;
+  }
   Conn rc = Conn::dial(host, port, 30000);
   if (!rc.valid()) {
     h.setI64("status", static_cast<int64_t>(Status::Unavailable));
@@ -727,6 +773,8 @@ void Node::hGet(Conn& c, Frame& fr) {
   }
   Fields req;
   req.set("file", filename);
+  req.set("clientId", clientId);
+  req.setU64("requiredSeq", requiredSeq);
   writeFrame(rc, MsgType::GetFromReplica, req, "");
   MsgType rt; Fields rh; uint64_t rplen = 0;
   if (!isOk(readMessageHead(rc, rt, rh, rplen))) {
@@ -734,11 +782,29 @@ void Node::hGet(Conn& c, Frame& fr) {
     writeFrame(c, MsgType::Reply, h, "");
     return;
   }
+  Status remoteStatus = static_cast<Status>(
+      rh.getI64("status", static_cast<int64_t>(Status::Internal)));
+  if (rt != MsgType::Reply || !isOk(remoteStatus)) {
+    discardPayload(rc, rplen);
+    h.setI64("status", static_cast<int64_t>(remoteStatus));
+    writeFrame(c, MsgType::Reply, h, "");
+    return;
+  }
+  if (rh.getU64("size", rplen) != rplen) {
+    discardPayload(rc, rplen);
+    h.setI64("status", static_cast<int64_t>(Status::Internal));
+    writeFrame(c, MsgType::Reply, h, "");
+    return;
+  }
+  h.setU64("size", rplen);
   // relay rplen bytes from rc to client c
+  uint64_t remaining = rplen;
   writeFrameStreaming(c, MsgType::Reply, h, rplen, [&](char* b, size_t cap) -> size_t {
-    // read up to cap from rc
-    ssize_t n = ::recv(rc.fd(), b, cap, 0);
-    return n > 0 ? static_cast<size_t>(n) : 0;
+    // Use Conn rather than recv(2), so the relay also works when node-to-node TLS is enabled.
+    size_t want = std::min<uint64_t>(cap, remaining);
+    if (want == 0 || !rc.readAll(b, want)) return 0;
+    remaining -= want;
+    return want;
   });
 }
 
