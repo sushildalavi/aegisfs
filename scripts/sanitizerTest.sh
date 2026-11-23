@@ -14,7 +14,7 @@ case "$MODE" in
   tsan)
     BUILD="$ROOT/build-tsan"
     OPTION="-DAEGISFS_ENABLE_TSAN=ON"
-    FILTER='Concurrency|Stress|Chaos'
+    FILTER='Concurrency|Stress|Chaos|MembershipTest'
     ;;
   *)
     echo "usage: $0 {asan|tsan}" >&2

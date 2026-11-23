@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Machine-verified acceptance gate for AegisFS. Exits NONZERO if any MANDATORY requirement is unmet.
-# Checks: clean build, full test suite, smoke + 10-node demo, benchmark evidence, GitHub owner,
-# commit author identity, and new-commit count vs the UNBORN baseline.
+# Checks: clean build, full test suite, Python extension/history tests, smoke + 10-node demo,
+# a real-process reliability run, benchmark evidence, GitHub owner, commit author identity, and
+# new-commit count vs the UNBORN baseline.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -25,11 +26,27 @@ else
   fail "ctest failed (see /tmp/aegis_ctest.log)"; tail -5 /tmp/aegis_ctest.log
 fi
 
+hdr "Python extension and operation-history tests"
+if python3 tests/python/extensionTest.py >/tmp/aegis_pytest.log 2>&1 \
+   && python3 tests/python/operationHistoryTest.py >>/tmp/aegis_pytest.log 2>&1; then
+  pass "python tests passed"
+else
+  fail "python tests failed (see /tmp/aegis_pytest.log)"; tail -8 /tmp/aegis_pytest.log
+fi
+
 hdr "Smoke test (3-node e2e)"
 if ./scripts/smokeTest.sh >/tmp/aegis_smoke.log 2>&1; then pass "smokeTest.sh"; else fail "smokeTest.sh"; tail -5 /tmp/aegis_smoke.log; fi
 
 hdr "10-node demo (fault injection)"
 if ./scripts/demo.sh >/tmp/aegis_demo.log 2>&1; then pass "demo.sh (10-node, 2-node failure, re-replication)"; else fail "demo.sh"; tail -8 /tmp/aegis_demo.log; fi
+
+hdr "Reliability test (real-process two-failure + malformed frame)"
+./scripts/reliabilityTest.sh >/tmp/aegis_reliability.log 2>&1
+rc=$?
+if [ "$rc" -eq 0 ]; then pass "reliabilityTest.sh"
+elif [ "$rc" -eq 77 ]; then note "reliabilityTest.sh skipped: $(tail -1 /tmp/aegis_reliability.log)"
+else fail "reliabilityTest.sh"; tail -8 /tmp/aegis_reliability.log
+fi
 
 hdr "Benchmark evidence"
 if [ -s benchmarks/results/raw.csv ] && [ -s benchmarks/results/summary.csv ]; then

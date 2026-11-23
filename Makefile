@@ -4,7 +4,7 @@ BUILD ?= build
 GEN ?= Ninja
 TYPE ?= RelWithDebInfo
 
-.PHONY: all build configure test smoke demo bench asan tsan clean verify
+.PHONY: all build configure test test-python smoke demo bench asan tsan reliability clean verify
 
 all: build
 
@@ -14,8 +14,12 @@ configure:
 build: configure
 	cmake --build $(BUILD)
 
-test: build
+test: build test-python
 	ctest --test-dir $(BUILD) --output-on-failure
+
+test-python:
+	python3 tests/python/extensionTest.py
+	python3 tests/python/operationHistoryTest.py
 
 smoke: build
 	scripts/smokeTest.sh
@@ -27,14 +31,13 @@ bench: build
 	benchmarks/runner/bench.sh
 
 asan:
-	cmake -S . -B build-asan -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DAEGISFS_ENABLE_ASAN=ON
-	cmake --build build-asan
-	ctest --test-dir build-asan --output-on-failure
+	scripts/sanitizerTest.sh asan
 
 tsan:
-	cmake -S . -B build-tsan -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DAEGISFS_ENABLE_TSAN=ON
-	cmake --build build-tsan --target concurrencyTest membershipTest
-	./build-tsan/tests/concurrencyTest
+	scripts/sanitizerTest.sh tsan
+
+reliability: build
+	scripts/reliabilityTest.sh
 
 verify: build
 	scripts/verifyDefinitionOfDone.sh
