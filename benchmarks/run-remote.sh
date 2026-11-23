@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# Same create/get timing matrix as bench.sh, but against an already-running cluster instead of
+# Same create/get timing matrix as run-matrix.sh, but against an already-running cluster instead of
 # one this script starts itself — for measuring over a real network between separate machines
 # rather than loopback on one host. This script does not start, stop, or otherwise control the
 # cluster; point it at any live entry node and it just measures.
 #
-# Usage: benchRemote.sh <entry_host:port> [output_name]
-#   benchmarks/runner/benchRemote.sh 10.0.0.5:9100 wan
+# Usage: run-remote.sh <entry_host:port> [output_name]
+#   benchmarks/run-remote.sh 10.0.0.5:9100 wan
 #
 # Setup (on genuinely separate machines or network-isolated hosts):
 #   host A: aegisfs serve --data /tmp/a --host 0.0.0.0 --port 9100 --id a
 #   host B: aegisfs serve --data /tmp/b --host 0.0.0.0 --port 9100 --id b --seeds <hostA>:9100
 #   host C: aegisfs serve --data /tmp/c --host 0.0.0.0 --port 9100 --id c --seeds <hostA>:9100
 #   then from any machine that can reach host A:
-#   benchmarks/runner/benchRemote.sh <hostA-ip>:9100
+#   benchmarks/run-remote.sh <hostA-ip>:9100
 set -uo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/build/aegisfs"
 RESULTS="$ROOT/benchmarks/results"
 TMP="$(mktemp -d)"
 REPS="${REPS:-5}"
 SIZES_KB=(1 1024 10240 102400)
 
-ENTRY="${1:?usage: benchRemote.sh <entry_host:port> [output_name]}"
+ENTRY="${1:?usage: run-remote.sh <entry_host:port> [output_name]}"
 NAME_TAG="${2:-remote}"
 OUT="$RESULTS/raw_${NAME_TAG}.csv"
 mkdir -p "$RESULTS"

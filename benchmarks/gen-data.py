@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate deterministic fixture files for AegisFS benchmarks.
 
-Usage: genData.py <out_dir> [sizes_kb...]
+Usage: gen-data.py <out_dir> [sizes_kb...]
 Creates reproducible pseudo-random files <out_dir>/fixture_<kb>k.bin for each size (default
 1, 1024, 10240, 102400 KiB). Deterministic per size so runs are comparable. Stdlib only.
 """

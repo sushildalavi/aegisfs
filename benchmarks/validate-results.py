@@ -41,5 +41,5 @@ def main(path):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        raise SystemExit("usage: validateResults.py RESULTS/raw.csv")
+        raise SystemExit("usage: validate-results.py RESULTS/raw.csv")
     main(sys.argv[1])

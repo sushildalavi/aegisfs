@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# AegisFS benchmark runner. Measures create/get latency across file sizes under two replication
+# AegisFS benchmark runner: Measures create/get latency across file sizes under two replication
 # fan-out strategies (sequential vs parallel) on a process-local 5-node cluster, and append
-# throughput. Emits raw CSV to benchmarks/results/raw.csv. Honest wall-clock timings; no fabrication.
+# throughput. Emits raw CSV to benchmarks/results/raw.csv. Plain wall-clock timings.
 set -uo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/build/aegisfs"
 RESULTS="$ROOT/benchmarks/results"
 TMP="$(mktemp -d)"
@@ -68,6 +68,6 @@ echo "== parallel replication =="
 run_matrix "parallel" 1
 
 echo "Raw results -> $RESULTS/raw.csv"
-python3 "$ROOT/benchmarks/runner/analyze.py" "$RESULTS/raw.csv" "$RESULTS"
-python3 "$ROOT/benchmarks/runner/validateResults.py" "$RESULTS/raw.csv"
+python3 "$ROOT/benchmarks/analyze.py" "$RESULTS/raw.csv" "$RESULTS"
+python3 "$ROOT/benchmarks/validate-results.py" "$RESULTS/raw.csv"
 echo "Done."

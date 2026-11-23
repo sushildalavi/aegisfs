@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Concurrency-scaling benchmark: throughput (ops/sec) of create+append as the number of concurrent
 # clients grows (1, 5, 10, 20), each client driving a distinct file. Process-local 5-node cluster.
-# Emits benchmarks/results/concurrency.csv. Honest wall-clock; no fabrication.
+# Emits benchmarks/results/concurrency.csv. Plain wall-clock timings.
 set -uo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="$ROOT/build/aegisfs"
 RESULTS="$ROOT/benchmarks/results"
 TMP="$(mktemp -d)"
