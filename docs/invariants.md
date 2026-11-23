@@ -33,6 +33,7 @@ The properties the code is meant to keep, and the tests that check each one. Tes
 | I26 | A write that reaches fewer than `rf` replicas is reported as `DEGRADED`, even when the ring itself has fewer than `rf` members. | `Integration.CreateOnTwoNodeRingIsDegraded` |
 | I27 | A single unreachable link is not treated as a node failure, but a node that nobody can reach is. | `Chaos.IndirectProbeSurvivesPointToPointPartition`, `Chaos.TrueIsolationStillDetectedAsFailed` |
 | I28 | A coordinator failing mid-create does not leave an orphaned base segment. | `Chaos.PrimaryFailureDuringCreateDoesNotOrphanBase` |
+| I29 | A crash at any step of a segment or manifest write leaves the file exactly as it was or exactly the new version, with no orphans or temp files after restart. | `EveryStep/CrashPoints.AppendIsAllOrNothingAfterRestart/*`, `StorageFixture.CrashDuringFirstCreateLeavesNoFile` |
 
 ## What is and is not covered
 
@@ -44,9 +45,6 @@ Not covered by any test today:
 
 - Real network partitions (packet loss, delay, one-way links). The partition tests simulate an
   unreachable peer inside the process; they do not use `tc`, network namespaces or a proxy.
-- Crash injection at each step of the write path (after segment write but before fsync, after
-  fsync but before rename, and so on). `StorageFixture.CrashRecoveryDropsOrphanSegment` covers the
-  one case of an orphaned segment.
 - The Docker Compose stack. The files are there but Docker has not been available to run them.
 - Linearizability. Appends from different clients converge to one deterministic order, but that
   order comes from Lamport timestamps and not from wall-clock time.
