@@ -43,8 +43,10 @@ class StorageEngine {
   // directory, so this is a same-filesystem rename, not a copy) by renaming it directly into
   // place instead of streaming it through putSegmentStream's own temp file. Only safe when the
   // caller already knows spooledPath's content matches the intended checksum.
+  // With keepSource the spooled file stays where it is (it is hard-linked into place instead of
+  // renamed), for callers that still need to stream it to other replicas afterward.
   Status commitSpooledSegment(const std::string& fileId, const std::string& diskName,
-                                const std::string& spooledPath);
+                                const std::string& spooledPath, bool keepSource = false);
 
   // Size in bytes of a stored segment file, or false if it is missing. Cheap (one stat), used
   // by the background scrubber to notice missing or truncated segments without re-hashing.

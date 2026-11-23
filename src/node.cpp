@@ -1,5 +1,8 @@
 #include "aegisfs/node.hpp"
 
+#include <condition_variable>
+#include <deque>
+
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -471,19 +474,77 @@ Status Node::spoolPayload(Conn& c, uint64_t plen, const std::string& tag, std::s
   tmpPath = storageEngine->dataDir() + "/tmp/" + tag + "." + randomHex(8);
   int fd = ::open(tmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
   if (fd < 0) return Status::IoError;
+
+  // Receiving, writing and hashing a payload are independent of each other, so they overlap: this
+  // thread receives a chunk and writes it to the spool file, and a second thread hashes the same
+  // chunk. Chunks cycle through a small ring of buffers so no bytes are copied. A buffer is only
+  // reused after it has been both written and hashed, and every byte is still hashed in order.
+  constexpr int kSlots = 4;
+  struct Slot { std::vector<char> data; size_t len{0}; };
+  std::vector<Slot> slots(kSlots);
+  for (auto& sl : slots) sl.data.resize(kStreamChunkBytes);
+
+  std::mutex mu;
+  std::condition_variable cv;
+  std::deque<int> freeSlots, toHash;
+  for (int i = 0; i < kSlots; ++i) freeSlots.push_back(i);
+  bool finished = false;
   Sha256Stream hasher;
-  Status s = streamPayloadIn(c, plen, [&](const char* b, size_t n) {
-    hasher.update(b, n);
-    const char* p = b;
-    size_t left = n;
+  std::thread hashThread([&] {
+    for (;;) {
+      int idx;
+      {
+        std::unique_lock<std::mutex> lk(mu);
+        cv.wait(lk, [&] { return !toHash.empty() || finished; });
+        if (toHash.empty()) return;
+        idx = toHash.front();
+        toHash.pop_front();
+      }
+      hasher.update(slots[idx].data.data(), slots[idx].len);
+      {
+        std::lock_guard<std::mutex> lk(mu);
+        freeSlots.push_back(idx);
+      }
+      cv.notify_all();
+    }
+  });
+
+  Status s = Status::Ok;
+  uint64_t got = 0;
+  while (got < plen && isOk(s)) {
+    int idx;
+    {
+      std::unique_lock<std::mutex> lk(mu);
+      cv.wait(lk, [&] { return !freeSlots.empty(); });
+      idx = freeSlots.front();
+      freeSlots.pop_front();
+    }
+    size_t want = static_cast<size_t>(std::min<uint64_t>(kStreamChunkBytes, plen - got));
+    if (!c.readAll(slots[idx].data.data(), want)) { s = Status::NetworkError; break; }
+    slots[idx].len = want;
+    const char* p = slots[idx].data.data();
+    size_t left = want;
     while (left) {
       ssize_t w = ::write(fd, p, left);
-      if (w < 0) return false;
+      if (w < 0) { s = Status::IoError; break; }
       p += w;
       left -= static_cast<size_t>(w);
     }
-    return true;
-  });
+    if (!isOk(s)) break;
+    got += want;
+    {
+      std::lock_guard<std::mutex> lk(mu);
+      toHash.push_back(idx);
+    }
+    cv.notify_all();
+  }
+  {
+    std::lock_guard<std::mutex> lk(mu);
+    finished = true;
+  }
+  cv.notify_all();
+  hashThread.join();
+
   // The spooled file may be renamed straight into the store, so a failed flush has to fail the
   // upload rather than be acknowledged as durable.
   if (isOk(s) && ::fsync(fd) != 0) s = Status::IoError;
@@ -495,7 +556,7 @@ Status Node::spoolPayload(Conn& c, uint64_t plen, const std::string& tag, std::s
 
 Status Node::applySegmentLocal(const std::string& fileId, const std::string& filename,
                                  const std::string& createOp, const SegmentRef& seg,
-                                 const std::string& srcPath, bool srcVerified) {
+                                 const std::string& srcPath, bool srcVerified, bool keepSource) {
   // Lock-free: the caller holds the per-file lock. Enforces idempotency and first-create-only.
   Manifest m;
   bool have = storageEngine->loadManifest(fileId, m);
@@ -506,7 +567,7 @@ Status Node::applySegmentLocal(const std::string& fileId, const std::string& fil
     }
   }
   if (srcVerified) {
-    Status ps = storageEngine->commitSpooledSegment(fileId, seg.diskName, srcPath);
+    Status ps = storageEngine->commitSpooledSegment(fileId, seg.diskName, srcPath, keepSource);
     if (!isOk(ps)) return ps;
   } else {
     int fd = ::open(srcPath.c_str(), O_RDONLY);
@@ -536,10 +597,10 @@ Status Node::applySegmentLocal(const std::string& fileId, const std::string& fil
 
 Status Node::applyLocalLocked(const std::string& fileId, const std::string& filename,
                                 const std::string& createOp, const SegmentRef& seg,
-                                const std::string& srcPath, bool srcVerified) {
+                                const std::string& srcPath, bool srcVerified, bool keepSource) {
   auto lk = fileLock(fileId);
   std::lock_guard<std::mutex> g(*lk);
-  return applySegmentLocal(fileId, filename, createOp, seg, srcPath, srcVerified);
+  return applySegmentLocal(fileId, filename, createOp, seg, srcPath, srcVerified, keepSource);
 }
 
 int Node::fanout(const std::vector<RingNode>& targets, const std::string& fileId,
@@ -547,7 +608,8 @@ int Node::fanout(const std::vector<RingNode>& targets, const std::string& fileId
                  const std::string& srcPath, uint64_t plen, bool isBase) {
   auto one = [&](const RingNode& r) -> Status {
     if (r.nodeId == membershipTable->selfId())
-      return applyLocalLocked(fileId, filename, createOp, seg, srcPath);
+      return applyLocalLocked(fileId, filename, createOp, seg, srcPath, /*srcVerified=*/true,
+                              /*keepSource=*/true);
     int fd = ::open(srcPath.c_str(), O_RDONLY);
     if (fd < 0) return Status::IoError;
     std::function<size_t(char*, size_t)> src = [fd](char* b, size_t cap) -> size_t {
@@ -618,7 +680,9 @@ void Node::hCreate(Conn& c, Fields& h, uint64_t plen) {
   // atomically rejects a duplicate base (different opId). Concurrent creates serialize there.
   // The coordinator holds NO cross-node lock; each node locks only its own local apply.
   auto writeTo = [&](const RingNode& r) -> Status {
-    if (r.nodeId == membershipTable->selfId()) return applyLocalLocked(fileId, filename, opId, seg, tmp);
+    if (r.nodeId == membershipTable->selfId())
+      return applyLocalLocked(fileId, filename, opId, seg, tmp, /*srcVerified=*/true,
+                              /*keepSource=*/true);
     int fd = -1;
     std::function<size_t(char*, size_t)> src;
     makeFileSource(fd, tmp, src);

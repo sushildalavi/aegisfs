@@ -235,13 +235,19 @@ Status StorageEngine::putSegmentStream(const std::string& fileId, const std::str
 }
 
 Status StorageEngine::commitSpooledSegment(const std::string& fileId, const std::string& diskName,
-                                            const std::string& spooledPath) {
+                                            const std::string& spooledPath, bool keepSource) {
   if (!validComponent(fileId) || !validComponent(diskName)) return Status::InvalidArgument;
   std::string dir = filesDir() + "/" + fileId;
   if (!isOk(mkdirs(dir))) return Status::IoError;
   std::string dst = dir + "/" + diskName;
   if (fault::crashPoint("spooled.beforeRename")) return Status::IoError;
-  if (::rename(spooledPath.c_str(), dst.c_str()) != 0) return Status::IoError;
+  if (keepSource) {
+    // link() fails if dst exists, so clear any leftover from an earlier aborted attempt first.
+    ::unlink(dst.c_str());
+    if (::link(spooledPath.c_str(), dst.c_str()) != 0) return Status::IoError;
+  } else if (::rename(spooledPath.c_str(), dst.c_str()) != 0) {
+    return Status::IoError;
+  }
   if (fault::crashPoint("spooled.afterRename")) return Status::IoError;
   if (!fsyncPath(dir)) return Status::IoError;
   return Status::Ok;

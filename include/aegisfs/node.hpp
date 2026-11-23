@@ -120,12 +120,14 @@ class Node {
   // false, since the resulting re-verification is their only defense against a bad fetch.
   Status applySegmentLocal(const std::string& fileId, const std::string& filename,
                              const std::string& createOp, const SegmentRef& seg,
-                             const std::string& srcPath, bool srcVerified = false);
+                             const std::string& srcPath, bool srcVerified = false,
+                             bool keepSource = false);
   // Same, but acquires the per-file lock for the (short, purely-local) critical section.
   // Coordinators use this for self-writes so they never hold a lock across network fan-out.
   Status applyLocalLocked(const std::string& fileId, const std::string& filename,
                             const std::string& createOp, const SegmentRef& seg,
-                            const std::string& srcPath, bool srcVerified = false);
+                            const std::string& srcPath, bool srcVerified = false,
+                            bool keepSource = false);
   // Write `seg` (bytes in `srcPath`, `plen` long) to each target replica; self-writes go local,
   // others over the network. Sequential or concurrent per config.parallelReplication. Returns the
   // number of replicas that durably committed.
