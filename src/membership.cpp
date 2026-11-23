@@ -58,8 +58,8 @@ void Membership::addOrUpdate(const Member& m) {
     nm.lastChangeUs = nowUs();
     members.push_back(nm);
   } else {
-    ex->address = m.address;
     if (m.incarnation > ex->incarnation) {
+      ex->address = m.address;
       ex->incarnation = m.incarnation;
       ex->state = m.state;
       ex->lastChangeUs = nowUs();
@@ -91,14 +91,16 @@ bool Membership::merge(const std::vector<Member>& incoming) {
       changed = true;
       continue;
     }
-    ex->address = in.address;
     if (in.incarnation > ex->incarnation) {
+      ex->address = in.address;
       ex->incarnation = in.incarnation;
       ex->state = in.state;
       ex->lastChangeUs = nowUs();
       changed = true;
     } else if (in.incarnation == ex->incarnation &&
                stateRank(in.state) > stateRank(ex->state)) {
+      // Address changes are incarnation changes.  Do not let a stale gossip record
+      // redirect probes for a live member while only escalating its state.
       ex->state = in.state;  // escalate (Alive<Suspect<Failed<Left)
       ex->lastChangeUs = nowUs();
       changed = true;
@@ -250,10 +252,12 @@ bool Membership::parse(const std::string& buf, std::vector<Member>& out) {
     m.address.assign(reinterpret_cast<const char*>(d + pos), l); pos += l;
     if (!need(9)) return false;
     m.incarnation = getU64(d + pos); pos += 8;
+    if (m.nodeId.empty() || m.address.empty() || d[pos] > static_cast<uint8_t>(MemberState::Left))
+      return false;
     m.state = static_cast<MemberState>(d[pos]); pos += 1;
     out.push_back(std::move(m));
   }
-  return true;
+  return pos == len;
 }
 
 }  // namespace aegisfs
