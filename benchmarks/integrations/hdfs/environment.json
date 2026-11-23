@@ -1,0 +1,19 @@
+{
+  "aegisfs_nodes": "3",
+  "connector_cpus": 8,
+  "connector_machine": "aarch64",
+  "connector_platform": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.39",
+  "connector_python": "3.12.3",
+  "docker_version": "29.9.3",
+  "hadoop_image": "apache/hadoop:3.4.1 (linux/amd64, emulated on arm64 hosts)",
+  "hdfs_datanodes": "2",
+  "hdfs_replication": "2",
+  "host_arch": "arm64",
+  "host_cores": "8",
+  "host_cpu": "Apple M3",
+  "host_memory_bytes": "17179869184",
+  "host_os": "Darwin 27.2.0",
+  "namenode_url": "http://namenode:9870",
+  "notes": "One laptop. HDFS is 1 NameNode + 2 DataNodes (replication 2) in Docker, the apache/hadoop image is linux/amd64 and runs under emulation on Apple silicon. AegisFS is 3 nodes in Docker on the same machine. Peak RSS is the Python process only.",
+  "timestamp_utc": "2026-11-23T23:17:36Z"
+}
