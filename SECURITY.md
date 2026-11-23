@@ -1,9 +1,9 @@
 # Security Policy
 
-AegisFS is a learning/portfolio distributed file system. It is **not hardened for untrusted
-networks** and should not be exposed to the public internet as-is.
+AegisFS is a personal project and has not been hardened for untrusted networks. Do not expose it
+to the public internet as it is.
 
-## Known limitations (by design, documented)
+## Known limitations
 - **Transport security is optional and must be enabled explicitly.** Without TLS, nodes and binary
   clients must run on a trusted network. TLS + mutual authentication is available through the
   `serve` and client TLS flags; the REST gateway additionally supports bearer-token authentication.

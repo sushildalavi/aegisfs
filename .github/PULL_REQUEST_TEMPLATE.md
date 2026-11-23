@@ -12,4 +12,4 @@
 - [ ] New invariants have tests (`docs/invariants.md` updated)
 
 ## Notes
-<!-- Tradeoffs, follow-ups, limitations. Be honest about what is NOT covered. -->
+<!-- Tradeoffs, follow-ups, and anything this change does not cover. -->

@@ -1,35 +1,51 @@
-# Contributing to AegisFS
+# Contributing
 
-Thanks for your interest. AegisFS is an original C++20 distributed file system; contributions
-should keep it buildable, tested, and honest about what works.
+Bug reports and patches are welcome. The short version: keep it building, keep the tests green,
+and say plainly what a change does and does not cover.
 
-## Development setup
+## Setup
+
 ```
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
 ctest --test-dir build --output-on-failure
 ```
-On macOS, install deps with Homebrew: `brew install cmake ninja openssl@3`.
 
-## Before you open a PR
-1. `ctest --test-dir build` is green (unit + integration + concurrency + chaos).
+On macOS: `brew install cmake ninja openssl@3`. On Debian or Ubuntu:
+`sudo apt-get install cmake ninja-build clang libssl-dev`. `scripts/bootstrap.sh` does either.
+
+## Before opening a pull request
+
+1. `ctest --test-dir build` passes.
 2. `scripts/checks/smoke-test.sh` passes.
-3. For concurrency-touching changes, build with `-DAEGISFS_ENABLE_TSAN=ON` and run the affected
-   tests under ThreadSanitizer.
-4. For memory-touching changes, build with `-DAEGISFS_ENABLE_ASAN=ON`.
-5. Run `clang-format` (config in `.clang-format`).
+3. Changes to concurrent code: build with `-DAEGISFS_ENABLE_TSAN=ON` and run the affected tests
+   (`scripts/checks/sanitizer-test.sh tsan`).
+4. Changes that touch memory handling: `scripts/checks/sanitizer-test.sh asan`.
+5. Format with `clang-format` (the config is in `.clang-format`).
 
-## Commit style
-Conventional commits: `feat(scope): …`, `fix(scope): …`, `test(scope): …`, `docs(scope): …`,
-`perf(scope): …`, `ops(scope): …`, `chore: …`. One coherent logical change per commit. Do not add
-AI/co-author trailers.
+`make verify` runs the full set of checks in one go.
 
-## Testing philosophy
-- Every new invariant gets a test (see `docs/invariants.md`).
-- No fabricated output or benchmark numbers — measure, then report, including negative results.
-- Prefer real process/in-process clusters over mocks for distributed behavior.
+## Commit messages
 
-## Where things live
-- Core library: `src/`, `include/aegisfs/`.
-- Tests: `tests/{unit,integration,concurrency,chaos}/`.
-- Ops scripts: `scripts/`. Benchmarks: `benchmarks/`. Design docs: `docs/`.
+Write a short summary line in plain English that says what changed, then a paragraph on why if the
+reason is not obvious. One logical change per commit.
+
+## Tests and benchmarks
+
+- A new invariant gets a test, and a row in `docs/invariants.md`.
+- Performance claims need numbers from `benchmarks/`, taken on the same machine and with the same
+  input before and after. `benchmarks/compare-builds.py` does that comparison for 100 MiB creates.
+  Report results that did not help as well as ones that did.
+- Prefer real nodes over mocks when testing distributed behaviour.
+
+## Layout
+
+| Path | Contents |
+|---|---|
+| `src/`, `include/aegisfs/` | the node, client and library code |
+| `tests/` | unit, integration, concurrency and chaos tests, plus Python tests for the extensions |
+| `scripts/` | cluster launcher and demo; `scripts/checks/` holds the test and verification scripts |
+| `benchmarks/` | benchmark scripts and recorded results |
+| `deploy/docker/` | Dockerfiles and compose file |
+| `extensions/` | REST gateway and Prometheus/Grafana setup |
+| `docs/` | architecture, invariants, tradeoffs, operations, benchmarks, design FAQ |
