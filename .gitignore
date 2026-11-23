@@ -40,3 +40,8 @@ id_rsa*
 
 # Benchmark cluster runtime
 run-bench/
+
+# Local coding-agent session files (kept on disk, not published)
+CLAUDE.md
+context.d
+buildStatus.json

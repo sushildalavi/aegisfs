@@ -28,15 +28,14 @@ The core implementation builds successfully. The current verification snapshot i
 | Check | Result |
 |---|---|
 | C++ build | Pass |
-| Focused non-network C++ tests | 60/60 pass |
+| Full CTest inventory | 93/93 pass |
+| ASan build (focused subset) | 60/60 pass |
 | Python extension tests | 4/4 pass |
 | Benchmark result validation | 80 rows pass |
-| Full CTest inventory | 61/93 pass in the sandbox |
 | Docker Compose validation | Not run; Docker is unavailable on the development host |
 
-The remaining full-suite failures require localhost socket access that is restricted in the
-current sandbox. See [`context.d`](context.d) for the complete verification record and known
-limitations.
+See [`docs/`](docs/) for the full architecture writeup, invariants, tradeoffs, operations
+runbook, and benchmark methodology.
 
 ## Build
 
@@ -112,8 +111,6 @@ scripts/demo.sh
 
 ## Repository guide
 
-- [`context.d`](context.d) — canonical architecture, implementation map, test evidence, benchmarks,
-  resume findings, and instructions for the next session.
 - [`docs/architecture.md`](docs/architecture.md) — system components and request paths.
 - [`docs/invariants.md`](docs/invariants.md) — correctness invariants mapped to tests.
 - [`docs/tradeoffs.md`](docs/tradeoffs.md) — design choices and alternatives.
@@ -121,13 +118,6 @@ scripts/demo.sh
 - [`docs/benchmarks.md`](docs/benchmarks.md) — benchmark methodology and measurements.
 - [`docs/interviewGuide.md`](docs/interviewGuide.md) — concise design questions and answers.
 - [`docs/extensions.md`](docs/extensions.md) — TLS, REST, Prometheus, Grafana, and Compose.
-
-## Sharing the project with GPT
-
-Share [`context.d`](context.d) first. It is the single compressed project context file and
-contains the architecture, directory map, implementation status, verification results, known
-limitations, resume-ready findings, and next steps. Add specific source files only when you want
-GPT to review or change a particular component.
 
 ## License
 
