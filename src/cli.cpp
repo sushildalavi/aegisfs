@@ -88,7 +88,7 @@ void printHelp() {
   std::cout <<
       "AegisFS: fault-tolerant distributed file system\n\n"
       "Run a node:\n"
-      "  aegisfs serve --data <dir> [--host 127.0.0.1] [--port N] [--id NAME]\n"
+      "  aegisfs serve --data <dir> [--host 127.0.0.1] [--advertise NAME] [--port N] [--id NAME]\n"
       "                [--seeds host:port,host:port] [--rf 3]\n"
       "                [--scrub-interval-ms 300000]\n\n"
       "Security (on by default; every node and client needs these, or --insecure):\n"
@@ -118,6 +118,7 @@ int runServe(const std::vector<std::string>& args) {
   NodeConfig cfg;
   cfg.dataRoot = argValue(args, "--data", "./data");
   cfg.host = argValue(args, "--host", "127.0.0.1");
+  cfg.advertiseHost = argValue(args, "--advertise", "");
   cfg.port = std::atoi(argValue(args, "--port", "0").c_str());
   cfg.nodeId = argValue(args, "--id", "");
   cfg.rf = std::atoi(argValue(args, "--rf", "3").c_str());

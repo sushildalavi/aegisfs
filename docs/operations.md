@@ -21,12 +21,13 @@ aegisfs --tls-ca ca.pem --token-file token --entry <seedhost>:9100 listMemIds
 `--insecure` skips both for local experiments. The certificate must be valid for the address other
 nodes and clients use to reach the node. See `SECURITY.md` for what the token does and does not
 protect.
-Flags: `--rf <k>` (default 3), `--parallel 0|1` (replica fan-out; default 1),
+Flags: `--advertise <name>` (the address peers use to reach this node, when it differs from the
+bind address, as in containers), `--rf <k>` (default 3), `--parallel 0|1` (replica fan-out; default 1),
 `--scrub-interval-ms <n>` (how often stored segments are fully re-hashed; default 300000).
 Client flag: `--stripe-mib <n>` splits files bigger than n MiB across the ring (default 256, 0 = off).
 
-Docker (untested; see `docs/tradeoffs.md`; the header of the compose file says how to create the
-certificates first):
+Docker (the header of the compose file says how to create the certificates first; the smoke test
+does it for you):
 ```
 docker compose -f deploy/docker/compose.yaml up -d --build
 docker compose -f deploy/docker/compose.yaml exec node0 aegisfs --entry node0:9100 listMemIds

@@ -42,7 +42,11 @@ exposition format. `extensions/metrics/prometheus.yml` and
 
 ## Docker Compose
 
-`scripts/checks/composeSmokeTest.sh` validates the Compose file, builds the images, starts the stack,
-checks node health, and prints membership. It prints a skip message and exits 0 when Docker is
-not installed, which is the case on the machine this was written on, so the Compose setup has
-not been run.
+`scripts/checks/composeSmokeTest.sh` builds the images and starts the ten nodes with their own
+throwaway certificates (in `.dev-compose/`). It waits for all ten to be `ALIVE`, creates a file on one
+node and reads it back from another, does the same with a striped file, then stops two nodes and
+reads again. It skips with a message when Docker is not installed. CI runs it on every push.
+
+Nodes in containers bind `0.0.0.0` but announce their service name with `--advertise nodeN`, which
+is also the name in the certificate. Without `--advertise` a node announces its bind address, and
+`0.0.0.0` is of no use to its peers.

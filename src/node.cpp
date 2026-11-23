@@ -97,7 +97,7 @@ Status Node::start() {
   listener = Listener::bind(config.host, config.port);
   if (!listener.valid()) return Status::NetworkError;
   portNumber = listener.port();
-  std::string addr = config.host + ":" + std::to_string(portNumber);
+  std::string addr = advertiseHost() + ":" + std::to_string(portNumber);
   membershipTable = std::make_unique<Membership>(id, addr);
   // Seeds are contacted directly in gossipOnce(); we do not insert placeholder members with
   // synthetic ids (that would pollute the ring). Real members are learned via gossip replies.

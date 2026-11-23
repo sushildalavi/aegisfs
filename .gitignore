@@ -46,3 +46,4 @@ CLAUDE.md
 context.d
 buildStatus.json
 .dev/
+.dev-compose/

@@ -47,6 +47,14 @@ jobs:
         if: matrix.sanitizer == 'none'
         run: ./scripts/checks/reliabilityTest.sh
 
+  docker-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ten-node Compose cluster end to end
+        run: ./scripts/checks/composeSmokeTest.sh
+
   tsan:
     runs-on: ubuntu-latest
     steps:

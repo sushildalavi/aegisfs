@@ -19,6 +19,7 @@ namespace aegisfs {
 struct NodeConfig {
   std::string nodeId;            // generated+persisted if empty
   std::string host{"127.0.0.1"};
+  std::string advertiseHost;  // address announced to peers; empty means use host
   int port{0};                    // 0 = ephemeral
   std::string dataRoot;
   std::vector<std::string> seeds; // host:port peers to join
@@ -56,7 +57,9 @@ class Node {
 
   int port() const { return portNumber; }
   std::string nodeId() const { return membershipTable ? membershipTable->selfId() : config.nodeId; }
-  std::string address() const { return config.host + ":" + std::to_string(portNumber); }
+  // The address other nodes use to reach this one: --advertise if given, else the bind host.
+  std::string advertiseHost() const { return config.advertiseHost.empty() ? config.host : config.advertiseHost; }
+  std::string address() const { return advertiseHost() + ":" + std::to_string(portNumber); }
   Membership* membership() { return membershipTable.get(); }
   StorageEngine* storage() { return storageEngine.get(); }
 

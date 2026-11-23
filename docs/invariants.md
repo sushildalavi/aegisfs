@@ -47,6 +47,5 @@ Not covered by any test today:
 
 - Real network partitions (packet loss, delay, one-way links). The partition tests simulate an
   unreachable peer inside the process; they do not use `tc`, network namespaces or a proxy.
-- The Docker Compose stack. The files are there but Docker has not been available to run them.
 - Linearizability. Appends from different clients converge to one deterministic order, but that
   order comes from Lamport timestamps and not from wall-clock time.

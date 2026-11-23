@@ -51,9 +51,10 @@ local metadata but not required; avoids a hidden "centralized DB" smell and keep
 ## Process-local cluster vs. Docker Compose
 **Chosen:** the 10-node cluster runs as separate processes on distinct localhost ports
 (`scripts/cluster.sh`), which needs nothing but the binary. The Dockerfiles and compose file in
-`deploy/docker/` do the same with containers, but I developed on a machine without Docker and
-have never run them. The processes are real, with their own data directories, real TCP and real
-failures via `kill`; what is missing is separate network stacks.
+`deploy/docker/` do the same with containers, each node on its own network address, and
+`scripts/checks/composeSmokeTest.sh` checks that stack end to end. The local processes are real too,
+with their own data directories, real TCP and real failures via `kill`, but share one network
+stack, so only the container setup exercises name resolution and per-node addresses.
 
 ## Integrity checking: stat every cycle, hash on a schedule
 **Chosen:** the maintenance loop stats every segment each cycle (missing or truncated files) and

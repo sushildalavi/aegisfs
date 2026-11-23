@@ -6,3 +6,8 @@ run-bench/
 data/
 benchmarks/results/
 *.log
+.dev/
+.dev-compose/
+CLAUDE.md
+context.d
+buildStatus.json
