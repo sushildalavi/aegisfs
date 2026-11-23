@@ -9,6 +9,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/devCreds.sh"
 BIN="${AEGISFS_BIN:-$ROOT/build/aegisfs}"
 RUN="$ROOT/run"
 BASE_PORT="${AEGISFS_BASE_PORT:-9100}"

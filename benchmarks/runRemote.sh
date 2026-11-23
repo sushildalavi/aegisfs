@@ -8,6 +8,8 @@
 #   benchmarks/runRemote.sh 10.0.0.5:9100 wan
 #
 # Setup (on separate machines or network-isolated hosts):
+#   Every node and this script need TLS credentials and the cluster token (AEGISFS_TLS_CA,
+#   AEGISFS_TLS_CERT, AEGISFS_TLS_KEY, AEGISFS_TOKEN_FILE), or AEGISFS_INSECURE=1 on all of them.
 #   host A: aegisfs serve --data /tmp/a --host 0.0.0.0 --port 9100 --id a
 #   host B: aegisfs serve --data /tmp/b --host 0.0.0.0 --port 9100 --id b --seeds <hostA>:9100
 #   host C: aegisfs serve --data /tmp/c --host 0.0.0.0 --port 9100 --id c --seeds <hostA>:9100

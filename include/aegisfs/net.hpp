@@ -23,6 +23,12 @@ struct TlsConfig {
 void configureTls(TlsConfig config);
 TlsConfig tlsConfig();
 
+// Shared cluster token. When set, every request frame this process sends carries it, and a node
+// refuses any request whose token is missing or different. Empty means no check.
+void configureAuthToken(std::string token);
+std::string authToken();
+bool authTokenMatches(const std::string& presented);
+
 // Parse "host:port". Returns false on malformed input.
 bool parseEndpoint(const std::string& s, std::string& host, int& port);
 

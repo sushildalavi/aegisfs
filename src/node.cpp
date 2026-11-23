@@ -151,6 +151,11 @@ void Node::handleConn(std::shared_ptr<Conn> c) {
   uint64_t plen = 0;
   if (!isOk(readMessageHead(*c, t, h, plen))) return;
   Metrics::instance().incr("rpc.accepted");
+  if (!authTokenMatches(h.getOr("auth"))) {
+    Metrics::instance().incr("rpc.unauthorized");
+    repl::sendReply(*c, Status::Unauthorized);
+    return;
+  }
   switch (t) {
     case MsgType::Create: hCreate(*c, h, plen); return;
     case MsgType::Append: hAppend(*c, h, plen); return;

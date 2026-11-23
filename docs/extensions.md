@@ -8,15 +8,20 @@ than a second append. Applications can tune this with `Client::setRetryPolicy()`
 
 ## TLS and authentication
 
-Enable TLS on a node with:
+TLS and a cluster token are required unless `--insecure` is given. A node needs:
 
-```text
-aegisfs serve --data ./data --port 9100 --tls-cert server.crt --tls-key server.key --tls-ca ca.crt
+```bash
+aegisfs serve --data ./data --port 9100 \
+  --tls-cert node.pem --tls-key node.key --tls-ca ca.pem --token-file token
 ```
 
-Clients use `--tls-ca ca.crt`; mutual TLS additionally uses `--tls-client-cert` and
-`--tls-client-key`. TLS requires PEM certificates and negotiates TLS 1.2 or newer. The REST
-gateway supports bearer authentication through `AEGISFS_AUTH_TOKEN`.
+Clients (and the gateway and exporter, which run the `aegisfs` binary) need `--tls-ca ca.pem` and
+`--token-file token`; mutual TLS additionally uses `--tls-client-cert` and `--tls-client-key`. Each
+flag also has an environment variable (`AEGISFS_TLS_CA`, `AEGISFS_TLS_CERT`, `AEGISFS_TLS_KEY`,
+`AEGISFS_TLS_CLIENT_CERT`, `AEGISFS_TLS_CLIENT_KEY`, `AEGISFS_TOKEN_FILE`, `AEGISFS_CLUSTER_TOKEN`),
+which is how the gateway picks them up. Certificates are PEM, TLS 1.2 or newer, and the server
+certificate must name the address clients dial. The REST gateway has its own bearer token,
+`AEGISFS_AUTH_TOKEN`, which is separate from the cluster token.
 
 ## Quorum reads
 

@@ -7,15 +7,25 @@ scripts/cluster.sh start 10      # nodes on 127.0.0.1:9100..9109, node0 is the s
 scripts/cluster.sh status
 scripts/cluster.sh stop
 ```
-A node is just one process:
+`cluster.sh` sources `scripts/devCreds.sh`, which creates a throwaway CA, node certificate and
+cluster token in `.dev/` the first time. To run your own `aegisfs` commands against that cluster in
+the same shell, `source scripts/devCreds.sh` first.
+
+A node is just one process. TLS and a cluster token are required, so a real node looks like:
 ```
-aegisfs serve --data /var/lib/aegisfs/n0 --host 0.0.0.0 --port 9100 --id n0
-aegisfs serve --data /var/lib/aegisfs/n1 --host 0.0.0.0 --port 9101 --id n1 --seeds <seedhost>:9100
+aegisfs serve --data /var/lib/aegisfs/n0 --host 0.0.0.0 --port 9100 --id n0 \
+  --tls-cert node.pem --tls-key node.key --tls-ca ca.pem --token-file token
+aegisfs serve ... --port 9101 --id n1 --seeds <seedhost>:9100
+aegisfs --tls-ca ca.pem --token-file token --entry <seedhost>:9100 listMemIds
 ```
+`--insecure` skips both for local experiments. The certificate must be valid for the address other
+nodes and clients use to reach the node. See `SECURITY.md` for what the token does and does not
+protect.
 Flags: `--rf <k>` (default 3), `--parallel 0|1` (replica fan-out; default 1),
 `--scrub-interval-ms <n>` (how often stored segments are fully re-hashed; default 300000).
 
-Docker (untested; see `docs/tradeoffs.md`):
+Docker (untested; see `docs/tradeoffs.md`; the header of the compose file says how to create the
+certificates first):
 ```
 docker compose -f deploy/docker/compose.yaml up -d --build
 docker compose -f deploy/docker/compose.yaml exec node0 aegisfs --entry node0:9100 listMemIds

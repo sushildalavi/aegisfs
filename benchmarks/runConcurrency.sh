@@ -4,6 +4,7 @@
 # Emits benchmarks/results/concurrency.csv. Plain wall-clock timings.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/devCreds.sh"
 BIN="$ROOT/build/aegisfs"
 RESULTS="$ROOT/benchmarks/results"
 TMP="$(mktemp -d)"

@@ -4,6 +4,7 @@
 # Exits 0 if all replicas agree, nonzero otherwise.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/devCreds.sh"
 BIN="${AEGISFS_BIN:-$ROOT/build/aegisfs}"
 E="${1:?usage: verifyIntegrity.sh <entry> <name>}"
 NAME="${2:?usage: verifyIntegrity.sh <entry> <name>}"

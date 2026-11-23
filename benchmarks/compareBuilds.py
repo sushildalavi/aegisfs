@@ -24,6 +24,11 @@ import argparse, csv, os, shutil, signal, statistics, subprocess, sys, tempfile,
 NODES = 5
 
 
+# The older binary has no TLS or token support, so both builds run with the insecure switch and
+# the comparison measures the storage and replication path only.
+os.environ["AEGISFS_INSECURE"] = "1"
+
+
 def start_cluster(binp, base, root):
     shutil.rmtree(root, ignore_errors=True)
     procs = []

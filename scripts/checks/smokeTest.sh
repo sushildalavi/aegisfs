@@ -3,6 +3,7 @@
 # full CRUD-ish path, and asserts byte integrity. Exits nonzero on any failed assertion.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/devCreds.sh"
 BIN="$ROOT/build/aegisfs"
 E="127.0.0.1:9100"
 TMP="$(mktemp -d)"

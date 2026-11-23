@@ -14,6 +14,7 @@ set(AEGISFS_TEST_SRCS
   unit/threadpoolTest.cpp
   integration/clusterTest.cpp
   integration/replicationTest.cpp
+  integration/securityTest.cpp
   concurrency/concurrencyTest.cpp
   concurrency/stressTest.cpp
   chaos/failureTest.cpp

@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <openssl/err.h>
+#include <openssl/x509_vfy.h>
 #include <openssl/ssl.h>
 
 #include <csignal>
@@ -28,6 +29,7 @@ namespace aegisfs {
 namespace {
 std::mutex gTlsMu;
 TlsConfig tlsState;
+std::string gAuthToken;
 std::once_flag gTlsInit;
 void initTlsLibrary() {
   OPENSSL_init_ssl(0, nullptr);
@@ -38,16 +40,20 @@ SSL_CTX* makeClientCtx(const TlsConfig& cfg) {
   if (!ctx) return nullptr;
   SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
   if (!cfg.caFile.empty()) {
+    // With a CA the server certificate must chain to it and match the host we dialed.
     if (SSL_CTX_load_verify_locations(ctx, cfg.caFile.c_str(), nullptr) != 1) {
       SSL_CTX_free(ctx); return nullptr;
     }
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, nullptr);
+  } else {
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);  // encryption only, no authentication
   }
   if (!cfg.clientCertificate.empty() && !cfg.clientPrivateKey.empty()) {
-    SSL_CTX_use_certificate_file(ctx, cfg.clientCertificate.c_str(), SSL_FILETYPE_PEM);
-    SSL_CTX_use_PrivateKey_file(ctx, cfg.clientPrivateKey.c_str(), SSL_FILETYPE_PEM);
+    if (SSL_CTX_use_certificate_file(ctx, cfg.clientCertificate.c_str(), SSL_FILETYPE_PEM) != 1 ||
+        SSL_CTX_use_PrivateKey_file(ctx, cfg.clientPrivateKey.c_str(), SSL_FILETYPE_PEM) != 1) {
+      SSL_CTX_free(ctx); return nullptr;
+    }
   }
-  else SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
   return ctx;
 }
 SSL_CTX* makeServerCtx(const TlsConfig& cfg) {
@@ -74,6 +80,28 @@ void configureTls(TlsConfig config) {
 TlsConfig tlsConfig() {
   std::lock_guard<std::mutex> lk(gTlsMu);
   return tlsState;
+}
+
+void configureAuthToken(std::string token) {
+  std::lock_guard<std::mutex> lk(gTlsMu);
+  gAuthToken = std::move(token);
+}
+
+std::string authToken() {
+  std::lock_guard<std::mutex> lk(gTlsMu);
+  return gAuthToken;
+}
+
+bool authTokenMatches(const std::string& presented) {
+  std::string want = authToken();
+  if (want.empty()) return true;
+  // Compare every byte so the time taken does not reveal how much of the token was right.
+  unsigned char diff = static_cast<unsigned char>(want.size() != presented.size());
+  for (size_t i = 0; i < want.size(); ++i) {
+    unsigned char c = i < presented.size() ? static_cast<unsigned char>(presented[i]) : 0;
+    diff |= static_cast<unsigned char>(want[i]) ^ c;
+  }
+  return diff == 0;
 }
 
 // Ignore SIGPIPE process-wide: writing to a peer that closed its end must return EPIPE from
@@ -166,6 +194,14 @@ Conn Conn::dial(const std::string& host, int port, int timeoutMs) {
     SSL* ssl = ctx ? SSL_new(ctx) : nullptr;
     if (!ssl) { if (ctx) SSL_CTX_free(ctx); ::close(fd); return Conn(); }
     SSL_set_fd(ssl, fd);
+    if (!cfg.caFile.empty()) {
+      unsigned char probe[16];
+      bool isIp = inet_pton(AF_INET, host.c_str(), probe) == 1 ||
+                  inet_pton(AF_INET6, host.c_str(), probe) == 1;
+      bool named = isIp ? X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(ssl), host.c_str()) == 1
+                        : SSL_set1_host(ssl, host.c_str()) == 1;
+      if (!named) { SSL_free(ssl); SSL_CTX_free(ctx); ::close(fd); return Conn(); }
+    }
     if (SSL_connect(ssl) != 1) { SSL_free(ssl); SSL_CTX_free(ctx); ::close(fd); return Conn(); }
     // The connection owns the SSL object; its context is retained by SSL.
     SSL_CTX_free(ctx);
@@ -221,9 +257,18 @@ static std::string buildPrefix(MsgType type, const std::string& header, uint64_t
   return pre;
 }
 
-Status writeFrame(Conn& c, MsgType type, const Fields& header, const std::string& payload) {
+static std::string serializeHeader(MsgType type, const Fields& header) {
   std::string hbytes;
-  header.serialize(hbytes);
+  std::string token = type == MsgType::Reply ? std::string() : authToken();
+  if (token.empty()) { header.serialize(hbytes); return hbytes; }
+  Fields withAuth = header;
+  withAuth.set("auth", token);
+  withAuth.serialize(hbytes);
+  return hbytes;
+}
+
+Status writeFrame(Conn& c, MsgType type, const Fields& header, const std::string& payload) {
+  std::string hbytes = serializeHeader(type, header);
   std::string pre = buildPrefix(type, hbytes, payload.size());
   if (!c.writeAll(pre.data(), pre.size())) return Status::NetworkError;
   if (!payload.empty() && !c.writeAll(payload.data(), payload.size())) return Status::NetworkError;
@@ -281,8 +326,7 @@ Status discardPayload(Conn& c, uint64_t payloadLen) {
 Status writeFrameStreaming(
     Conn& c, MsgType type, const Fields& header, uint64_t payloadLen,
     const std::function<size_t(char*, size_t)>& source) {
-  std::string hbytes;
-  header.serialize(hbytes);
+  std::string hbytes = serializeHeader(type, header);
   std::string pre = buildPrefix(type, hbytes, payloadLen);
   if (!c.writeAll(pre.data(), pre.size())) return Status::NetworkError;
   std::vector<char> buf(kStreamChunkBytes);

@@ -4,6 +4,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/scripts/devCreds.sh"
 BIN="${AEGISFS_BIN:-$ROOT/build/aegisfs}"
 BASE="${AEGISFS_BASE_PORT:-9500}"
 RUN="$ROOT/run"
@@ -96,6 +97,19 @@ if "$BIN" --entry "127.0.0.1:$probePort" health >/dev/null 2>&1; then
   pass "malformed frame does not kill the listener"
 else
   fail "listener health check after malformed frame"
+fi
+
+printf 'wrong-token\n' > "$TMP/badToken"
+badOut="$(AEGISFS_TOKEN_FILE="$TMP/badToken" "$BIN" --entry "127.0.0.1:$probePort" health 2>/dev/null || true)"
+if printf '%s' "$badOut" | grep -q 'status=UNAUTHORIZED'; then
+  pass "wrong cluster token is refused"
+else
+  fail "wrong cluster token was not refused: $badOut"
+fi
+if "$BIN" --insecure --entry "127.0.0.1:$probePort" health 2>/dev/null | grep -q 'status=OK'; then
+  fail "plaintext client reached a TLS node"
+else
+  pass "plaintext client cannot reach a TLS node"
 fi
 
 if [ "$FAILED" -eq 0 ]; then

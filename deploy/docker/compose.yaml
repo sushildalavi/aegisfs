@@ -1,7 +1,10 @@
 # 10-node AegisFS cluster via Docker Compose. Each node has its own persistent volume, network
 # endpoint, identity, and logs. node0 is the bootstrap seed; the rest join via it.
 #
-# Usage:
+# Nodes refuse to start without TLS and a cluster token, so make the throwaway credentials first.
+# The certificate has to name every node, so give the SANs when you create it:
+#
+#   AEGISFS_DEV_SANS=$(printf 'DNS:node%s,' $(seq 0 9) | sed 's/,$//') scripts/devCreds.sh >/dev/null
 #   docker compose -f deploy/docker/compose.yaml up -d --build
 #   docker compose -f deploy/docker/compose.yaml exec node0 aegisfs --entry node0:9100 listMemIds
 #
@@ -14,59 +17,64 @@ x-node: &node
     dockerfile: deploy/docker/node.Dockerfile
   restart: unless-stopped
   networks: [aegis]
+  environment:
+    AEGISFS_TLS_CA: /creds/ca.pem
+    AEGISFS_TLS_CERT: /creds/node.pem
+    AEGISFS_TLS_KEY: /creds/node.key
+    AEGISFS_TOKEN_FILE: /creds/token
 
 services:
   node0:
     <<: *node
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node0"]
     ports: ["9100:9100"]
-    volumes: ["node0-data:/data"]
+    volumes: ["node0-data:/data", "../../.dev:/creds:ro"]
   node1: &joiner
     <<: *node
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node1", "--seeds", "node0:9100"]
     ports: ["9101:9100"]
-    volumes: ["node1-data:/data"]
+    volumes: ["node1-data:/data", "../../.dev:/creds:ro"]
     depends_on: [node0]
   node2:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node2", "--seeds", "node0:9100"]
     ports: ["9102:9100"]
-    volumes: ["node2-data:/data"]
+    volumes: ["node2-data:/data", "../../.dev:/creds:ro"]
   node3:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node3", "--seeds", "node0:9100"]
     ports: ["9103:9100"]
-    volumes: ["node3-data:/data"]
+    volumes: ["node3-data:/data", "../../.dev:/creds:ro"]
   node4:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node4", "--seeds", "node0:9100"]
     ports: ["9104:9100"]
-    volumes: ["node4-data:/data"]
+    volumes: ["node4-data:/data", "../../.dev:/creds:ro"]
   node5:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node5", "--seeds", "node0:9100"]
     ports: ["9105:9100"]
-    volumes: ["node5-data:/data"]
+    volumes: ["node5-data:/data", "../../.dev:/creds:ro"]
   node6:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node6", "--seeds", "node0:9100"]
     ports: ["9106:9100"]
-    volumes: ["node6-data:/data"]
+    volumes: ["node6-data:/data", "../../.dev:/creds:ro"]
   node7:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node7", "--seeds", "node0:9100"]
     ports: ["9107:9100"]
-    volumes: ["node7-data:/data"]
+    volumes: ["node7-data:/data", "../../.dev:/creds:ro"]
   node8:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node8", "--seeds", "node0:9100"]
     ports: ["9108:9100"]
-    volumes: ["node8-data:/data"]
+    volumes: ["node8-data:/data", "../../.dev:/creds:ro"]
   node9:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--id", "node9", "--seeds", "node0:9100"]
     ports: ["9109:9100"]
-    volumes: ["node9-data:/data"]
+    volumes: ["node9-data:/data", "../../.dev:/creds:ro"]
 
   gateway:
     build:
@@ -75,9 +83,12 @@ services:
     command: ["/app/gateway.py"]
     environment:
       AEGISFS_ENTRY: node0:9100
+      AEGISFS_TLS_CA: /creds/ca.pem
+      AEGISFS_TOKEN_FILE: /creds/token
       GATEWAY_PORT: "8080"
       AEGISFS_AUTH_TOKEN: "change-me"
     ports: ["8080:8080"]
+    volumes: ["../../.dev:/creds:ro"]
     depends_on: [node0]
     networks: [aegis]
 
@@ -88,8 +99,11 @@ services:
     command: ["/app/exporter.py"]
     environment:
       AEGISFS_ENTRY: node0:9100
+      AEGISFS_TLS_CA: /creds/ca.pem
+      AEGISFS_TOKEN_FILE: /creds/token
       EXPORTER_PORT: "9108"
     ports: ["19108:9108"]
+    volumes: ["../../.dev:/creds:ro"]
     depends_on: [node0]
     networks: [aegis]
 

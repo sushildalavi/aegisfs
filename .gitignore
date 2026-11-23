@@ -45,3 +45,4 @@ run-bench/
 CLAUDE.md
 context.d
 buildStatus.json
+.dev/

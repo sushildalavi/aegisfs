@@ -34,6 +34,7 @@ The properties the code is meant to keep, and the tests that check each one. Tes
 | I27 | A single unreachable link is not treated as a node failure, but a node that nobody can reach is. | `Chaos.IndirectProbeSurvivesPointToPointPartition`, `Chaos.TrueIsolationStillDetectedAsFailed` |
 | I28 | A coordinator failing mid-create does not leave an orphaned base segment. | `Chaos.PrimaryFailureDuringCreateDoesNotOrphanBase` |
 | I29 | A crash at any step of a segment or manifest write leaves the file exactly as it was or exactly the new version, with no orphans or temp files after restart. | `EveryStep/CrashPoints.AppendIsAllOrNothingAfterRestart/*`, `StorageFixture.CrashDuringFirstCreateLeavesNoFile` |
+| I30 | Every request must carry the cluster token, TLS clients verify the server certificate and host, and a client or node without credentials cannot talk to the cluster. | `Security.TokenIsRequiredOnEveryRequest`, `Security.AuthTokenComparison`, `Security.TlsClusterWorksAndRejectsOutsiders`, `Security.MutualTlsRejectsClientsWithoutACertificate`, `scripts/checks/reliabilityTest.sh` |
 
 ## What is and is not covered
 

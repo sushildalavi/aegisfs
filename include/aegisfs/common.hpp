@@ -21,6 +21,7 @@ enum class Status : int32_t {
   Unavailable = 10,   // no reachable replica
   Internal = 11,
   Conflict = 12,
+  Unauthorized = 13,  // missing or wrong cluster token
 };
 
 inline std::string_view statusName(Status s) {
@@ -38,6 +39,7 @@ inline std::string_view statusName(Status s) {
     case Status::Unavailable: return "UNAVAILABLE";
     case Status::Internal: return "INTERNAL";
     case Status::Conflict: return "CONFLICT";
+    case Status::Unauthorized: return "UNAUTHORIZED";
   }
   return "UNKNOWN";
 }

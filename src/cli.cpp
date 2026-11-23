@@ -7,7 +7,9 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <cctype>
 #include <cstdlib>
+#include <fstream>
 #include <cstring>
 #include <iostream>
 #include <map>
@@ -45,6 +47,40 @@ std::string argValue(const std::vector<std::string>& args, const std::string& ke
   return def;
 }
 
+bool hasFlag(const std::vector<std::string>& args, const std::string& key) {
+  return std::find(args.begin(), args.end(), key) != args.end();
+}
+
+// A flag's value, falling back to an environment variable, then to a default.
+std::string optionValue(const std::vector<std::string>& args, const std::string& key,
+                         const char* envName, const std::string& def = "") {
+  std::string v = argValue(args, key);
+  if (!v.empty()) return v;
+  if (const char* e = std::getenv(envName)) return e;
+  return def;
+}
+
+bool insecureRequested(const std::vector<std::string>& args) {
+  if (hasFlag(args, "--insecure")) return true;
+  const char* e = std::getenv("AEGISFS_INSECURE");
+  return e && std::string(e) == "1";
+}
+
+// The cluster token comes from a file (preferred, keeps it out of the process list) or the
+// environment. Trailing whitespace is dropped so a file written with echo works.
+std::string loadToken(const std::vector<std::string>& args) {
+  std::string path = optionValue(args, "--token-file", "AEGISFS_TOKEN_FILE");
+  std::string token;
+  if (!path.empty()) {
+    std::ifstream in(path);
+    std::getline(in, token);
+  } else if (const char* e = std::getenv("AEGISFS_CLUSTER_TOKEN")) {
+    token = e;
+  }
+  while (!token.empty() && std::isspace(static_cast<unsigned char>(token.back()))) token.pop_back();
+  return token;
+}
+
 int exitCode(Status s) { return isOk(s) ? 0 : (static_cast<int>(s) == 0 ? 1 : static_cast<int>(s)); }
 
 void printHelp() {
@@ -54,7 +90,13 @@ void printHelp() {
       "  aegisfs serve --data <dir> [--host 127.0.0.1] [--port N] [--id NAME]\n"
       "                [--seeds host:port,host:port] [--rf 3]\n"
       "                [--scrub-interval-ms 300000]\n\n"
-      "  TLS node flags: --tls-cert FILE --tls-key FILE [--tls-ca FILE] [--tls-require-client]\n"
+      "Security (on by default; every node and client needs these, or --insecure):\n"
+      "  node:   --tls-cert FILE --tls-key FILE --tls-ca FILE --token-file FILE\n"
+      "          [--tls-require-client]\n"
+      "  client: --tls-ca FILE --token-file FILE [--tls-client-cert FILE --tls-client-key FILE]\n"
+      "  The same values can come from AEGISFS_TLS_CERT, _TLS_KEY, _TLS_CA, _TLS_CLIENT_CERT,\n"
+      "  _TLS_CLIENT_KEY and AEGISFS_TOKEN_FILE (or AEGISFS_CLUSTER_TOKEN).\n"
+      "  --insecure (or AEGISFS_INSECURE=1) turns TLS and the token check off.\n"
       "Client commands (prefix with --entry host:port):\n"
       "  create <localfile> <name>         upload a new file (first-create-only)\n"
       "  get <name> <localfile>            download (read-your-writes)\n"
@@ -80,13 +122,29 @@ int runServe(const std::vector<std::string>& args) {
   cfg.parallelReplication = argValue(args, "--parallel", "1") != "0";
   cfg.scrubIntervalMs = std::atoi(argValue(args, "--scrub-interval-ms", "300000").c_str());
   cfg.seeds = splitCsv(argValue(args, "--seeds", ""));
-  TlsConfig tls;
-  tls.certificate = argValue(args, "--tls-cert");
-  tls.privateKey = argValue(args, "--tls-key");
-  tls.caFile = argValue(args, "--tls-ca");
-  tls.enabled = !tls.certificate.empty() && !tls.privateKey.empty();
-  tls.requireClientCertificate = argValue(args, "--tls-require-client", "0") != "0";
-  if (tls.enabled) configureTls(std::move(tls));
+  if (insecureRequested(args)) {
+    std::fprintf(stderr, "warning: running without TLS or a cluster token (--insecure)\n");
+  } else {
+    TlsConfig tls;
+    tls.certificate = optionValue(args, "--tls-cert", "AEGISFS_TLS_CERT");
+    tls.privateKey = optionValue(args, "--tls-key", "AEGISFS_TLS_KEY");
+    tls.caFile = optionValue(args, "--tls-ca", "AEGISFS_TLS_CA");
+    std::string token = loadToken(args);
+    if (tls.certificate.empty() || tls.privateKey.empty() || tls.caFile.empty() || token.empty()) {
+      std::fprintf(stderr,
+                   "refusing to start without TLS and a cluster token.\n"
+                   "  give --tls-cert, --tls-key, --tls-ca and --token-file,\n"
+                   "  or pass --insecure for a throwaway local node.\n");
+      return 2;
+    }
+    tls.enabled = true;
+    tls.clientCertificate = tls.certificate;  // nodes dial each other with the same identity
+    tls.clientPrivateKey = tls.privateKey;
+    tls.requireClientCertificate = argValue(args, "--tls-require-client", "0") != "0" ||
+                                   hasFlag(args, "--tls-require-client");
+    configureTls(std::move(tls));
+    configureAuthToken(std::move(token));
+  }
 
   Node node(std::move(cfg));
   Status s = node.start();
@@ -214,17 +272,29 @@ int cliMain(int argc, char** argv) {
     return runServe(std::vector<std::string>(args.begin() + 1, args.end()));
   }
   // client mode: expect --entry host:port then a command
-  TlsConfig tls;
-  tls.caFile = argValue(args, "--tls-ca");
-  tls.clientCertificate = argValue(args, "--tls-client-cert");
-  tls.clientPrivateKey = argValue(args, "--tls-client-key");
-  tls.enabled = !tls.caFile.empty() || (!tls.clientCertificate.empty() && !tls.clientPrivateKey.empty());
-  if (tls.enabled) configureTls(std::move(tls));
+  if (!insecureRequested(args)) {
+    TlsConfig tls;
+    tls.caFile = optionValue(args, "--tls-ca", "AEGISFS_TLS_CA");
+    tls.clientCertificate = optionValue(args, "--tls-client-cert", "AEGISFS_TLS_CLIENT_CERT");
+    tls.clientPrivateKey = optionValue(args, "--tls-client-key", "AEGISFS_TLS_CLIENT_KEY");
+    std::string token = loadToken(args);
+    if (tls.caFile.empty() || token.empty()) {
+      std::fprintf(stderr,
+                   "the client needs --tls-ca and --token-file (or AEGISFS_TLS_CA and\n"
+                   "AEGISFS_TOKEN_FILE), or pass --insecure to talk to an insecure node.\n");
+      return 2;
+    }
+    tls.enabled = true;
+    configureTls(std::move(tls));
+    configureAuthToken(std::move(token));
+  }
   std::string entry = argValue(args, "--entry", "127.0.0.1:9100");
   if (args[0] == "shell") return runShell(entry);
   std::vector<std::string> cmd;
   for (size_t i = 0; i < args.size(); ++i) {
-    if (args[i] == "--entry") { ++i; continue; }
+    if (args[i] == "--insecure") continue;
+    if (args[i] == "--entry" || args[i] == "--tls-ca" || args[i] == "--tls-client-cert" ||
+        args[i] == "--tls-client-key" || args[i] == "--token-file") { ++i; continue; }
     cmd.push_back(args[i]);
   }
   return runClient(entry, cmd);

@@ -5,6 +5,7 @@
 # re-replication, and final integrity. Exits NONZERO on any failed assertion.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$ROOT/scripts/devCreds.sh"
 BIN="$ROOT/build/aegisfs"
 CLUSTER="$ROOT/scripts/cluster.sh"
 N=10
