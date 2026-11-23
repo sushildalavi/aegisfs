@@ -15,6 +15,7 @@ x-node: &node
   build:
     context: ../..
     dockerfile: deploy/docker/node.Dockerfile
+    target: runtime
   restart: unless-stopped
   networks: [aegis]
   environment:

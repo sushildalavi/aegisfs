@@ -4,7 +4,7 @@ BUILD ?= build
 GEN ?= Ninja
 TYPE ?= RelWithDebInfo
 
-.PHONY: all build configure test test-python smoke demo bench asan tsan reliability compose clean verify
+.PHONY: all build configure test test-python smoke demo bench asan tsan reliability compose faults clean verify
 
 all: build
 
@@ -47,3 +47,6 @@ clean:
 
 compose:
 	scripts/checks/composeSmokeTest.sh
+
+faults:
+	scripts/checks/networkFaultTest.sh

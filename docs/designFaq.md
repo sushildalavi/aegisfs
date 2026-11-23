@@ -137,8 +137,11 @@ against that.
 ### What happens under a network partition?
 
 The design leans toward consistency. A write needs all three replicas to be acknowledged as `OK`,
-and a read that cannot meet the client's watermark says `STALE`. The partition tests simulate an
-unreachable peer inside the test process; there is no test with a real partition tool yet.
+and a read that cannot meet the client's watermark says `STALE`. `scripts/checks/networkFaultTest.sh`
+runs the ten-container cluster through a node cut off from the network (it is marked `FAILED`, the
+majority keeps serving, and it catches up after rejoining), 15% packet loss, 80 ms of added latency,
+and a one-way broken link. The in-process `Chaos.*` tests cover the same cases faster, without a
+kernel network stack.
 
 ### What are the main bottlenecks?
 
@@ -152,4 +155,4 @@ a segment is fully spooled before it is forwarded.
 
 Forward data to replicas while it is still arriving instead of after it is spooled; hinted handoff
 for writes that are degraded; version vectors to detect truly concurrent edits from different
-clients; and tests with real network faults.
+clients; and running the cluster across separate machines, which has only been done with containers on one.

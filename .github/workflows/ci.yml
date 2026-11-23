@@ -54,6 +54,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Ten-node Compose cluster end to end
         run: ./scripts/checks/composeSmokeTest.sh
+      - name: Network faults (partition, loss, latency, one-way link)
+        run: ./scripts/checks/networkFaultTest.sh
 
   tsan:
     runs-on: ubuntu-latest

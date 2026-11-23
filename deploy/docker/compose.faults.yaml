@@ -1,0 +1,43 @@
+# Layered over compose.yaml by scripts/checks/networkFaultTest.sh. Swaps the node image for the
+# variant that has tc and iptables, and lets the containers change their own network settings.
+services:
+  node0:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]
+  node1:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]
+  node2:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]
+  node3:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]
+  node4:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]
+  node5:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]
+  node6:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]
+  node7:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]
+  node8:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]
+  node9:
+    build:
+      target: faults
+    cap_add: [NET_ADMIN]

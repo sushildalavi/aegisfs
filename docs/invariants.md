@@ -36,16 +36,17 @@ The properties the code is meant to keep, and the tests that check each one. Tes
 | I29 | A crash at any step of a segment or manifest write leaves the file exactly as it was or exactly the new version, with no orphans or temp files after restart. | `EveryStep/CrashPoints.AppendIsAllOrNothingAfterRestart/*`, `StorageFixture.CrashDuringFirstCreateLeavesNoFile` |
 | I30 | Every request must carry the cluster token, TLS clients verify the server certificate and host, and a client or node without credentials cannot talk to the cluster. | `Security.TokenIsRequiredOnEveryRequest`, `Security.AuthTokenComparison`, `Security.TlsClusterWorksAndRejectsOutsiders`, `Security.MutualTlsRejectsClientsWithoutACertificate`, `scripts/checks/reliabilityTest.sh` |
 | I31 | A file larger than the stripe size is split into chunk files placed independently by the ring, reads back byte-identical from any client, and keeps first-create-wins and append order. | `Striping.LargeFileIsSplitSpreadAndReadBackIdentical`, `Striping.AppendsToAStripedFileKeepTheirOrder`, `Striping.OnlyTheFirstCreateOfAStripedNameWins`, `Striping.SmallFilesAreStoredWholeAndUnchanged` |
+| I32 | Against real containers: an isolated node is detected as FAILED and rejoins after healing, reads and writes continue under 15% packet loss and 80 ms latency without corruption or false failures, and one broken link does not get a healthy node declared dead. | `scripts/checks/networkFaultTest.sh` |
 
 ## What is and is not covered
 
 The C++ suite starts real nodes inside one test process, on separate localhost ports, with separate
 data directories. `scripts/checks/reliabilityTest.sh` repeats the two-failure case with separate OS
-processes and sends malformed frames to a live node.
+processes and sends malformed frames to a live node. `scripts/checks/composeSmokeTest.sh` and
+`scripts/checks/networkFaultTest.sh` run the same kind of checks against ten containers, the second
+with faults injected by the kernel (`docker network disconnect`, `tc netem`, `iptables`).
 
 Not covered by any test today:
 
-- Real network partitions (packet loss, delay, one-way links). The partition tests simulate an
-  unreachable peer inside the process; they do not use `tc`, network namespaces or a proxy.
 - Linearizability. Appends from different clients converge to one deterministic order, but that
   order comes from Lamport timestamps and not from wall-clock time.
