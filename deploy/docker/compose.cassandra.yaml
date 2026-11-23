@@ -1,0 +1,80 @@
+# Optional Cassandra metadata index. Layer it over the core stack; nothing here starts unless the
+# "cassandra" profile is selected, so the plain `docker compose -f compose.yaml up` is unchanged.
+#
+#   docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.cassandra.yaml \
+#       --profile cassandra up -d cassandra cassandra-init
+#   docker compose -f deploy/docker/compose.yaml -f deploy/docker/compose.cassandra.yaml \
+#       --profile cassandra up -d cassandra-indexer
+#
+# scripts/integrations/cassandraUp.sh and cassandraDown.sh wrap these.
+#
+# This is a single Cassandra node for development and testing: replication factor 1, no TLS, no
+# authentication. For anything else, set the replication, TLS and password settings described in
+# docs/cassandra-integration.md.
+
+x-integrations: &integrations
+  image: aegisfs-integrations:dev
+  build:
+    context: ../..
+    dockerfile: deploy/docker/integrations.Dockerfile
+    target: integrations
+  networks: [aegis]
+  environment: &integrations-env
+    AEGISFS_INT_CASSANDRA_CONTACT_POINTS: cassandra
+    AEGISFS_INT_CASSANDRA_PORT: "9042"
+    AEGISFS_INT_CASSANDRA_KEYSPACE: ${AEGISFS_INT_CASSANDRA_KEYSPACE:-aegisfs_index}
+    AEGISFS_INT_CASSANDRA_TLS: "false"
+    AEGISFS_INT_CASSANDRA_ALLOW_INSECURE: "true"   # development container: plain text, no login
+    AEGISFS_INT_CASSANDRA_REPLICATION_FACTOR: "1"
+    AEGISFS_INT_CASSANDRA_SPOOL_DIR: /var/lib/aegisfs-index/spool
+    AEGISFS_INT_AEGISFS_ENTRY: node0:9100
+    AEGISFS_TLS_CA: /creds/ca.pem
+    AEGISFS_TOKEN_FILE: /creds/token
+
+services:
+  cassandra:
+    profiles: ["cassandra"]
+    image: cassandra:5.0.5
+    restart: unless-stopped
+    networks: [aegis]
+    # Published on the loopback interface only.
+    ports: ["127.0.0.1:9042:9042"]
+    mem_limit: 1536m
+    environment:
+      CLUSTER_NAME: aegisfs-index
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe keyspaces' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 20s
+      retries: 30
+      start_period: 60s
+
+  cassandra-init:
+    <<: *integrations
+    profiles: ["cassandra"]
+    command: ["cassandra", "migrate"]
+    restart: "no"
+    depends_on:
+      cassandra:
+        condition: service_healthy
+
+  cassandra-indexer:
+    <<: *integrations
+    profiles: ["cassandra"]
+    # Replays queued index work every 5 seconds and does a full reconcile every 5 minutes.
+    command: ["cassandra", "index", "--watch", "5", "--reconcile-every", "300"]
+    restart: unless-stopped
+    volumes:
+      - indexer-spool:/var/lib/aegisfs-index
+      - ${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro
+    depends_on:
+      cassandra-init:
+        condition: service_completed_successfully
+
+volumes:
+  cassandra-data: {}
+  indexer-spool: {}
