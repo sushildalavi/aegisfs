@@ -1,0 +1,134 @@
+# A small real HDFS cluster for testing the optional HDFS import/export connector:
+# one NameNode and two DataNodes from the official Apache Hadoop image, plus a connector
+# container on the AegisFS network. Every service is in the "hdfs" profile, so the core
+# stack is unaffected unless the profile is turned on.
+#
+# Use it merged with the core file:
+#
+#   docker compose -p aegis-hdfs -f deploy/docker/compose.yaml -f deploy/docker/compose.hdfs.yaml \
+#       --profile hdfs up -d namenode datanode1 datanode2
+#
+# or just run scripts/integrations/hdfsUp.sh. Notes:
+#   * The apache/hadoop images are published for linux/amd64 only. On an ARM host they run under
+#     emulation, which works but is slow; the platform is pinned so that is explicit.
+#   * Replication is 2 and the heaps are small. This is a test cluster, not a sizing example.
+#   * WebHDFS redirects a read or write to a DataNode by hostname. The names datanode1 and
+#     datanode2 resolve inside the compose network only, so run the connector in the network
+#     (the connector service below). The redirect allowlist names exactly those two hosts.
+#   * "simple" authentication is used (the caller names a user). There is no Kerberos here.
+
+x-hadoop: &hadoop
+  image: apache/hadoop:3.4.1
+  platform: linux/amd64
+  profiles: ["hdfs"]
+  networks: [aegis]
+  restart: "no"
+
+x-hdfs-env: &hdfsEnv
+  CORE-SITE.XML_fs.defaultFS: hdfs://namenode:8020
+  HDFS-SITE.XML_dfs.replication: "2"
+  HDFS-SITE.XML_dfs.webhdfs.enabled: "true"
+  HDFS-SITE.XML_dfs.permissions.enabled: "true"
+  HDFS-SITE.XML_dfs.namenode.name.dir: /hdfs/nn
+  HDFS-SITE.XML_dfs.datanode.data.dir: /hdfs/dn
+  HDFS-SITE.XML_dfs.namenode.rpc-bind-host: 0.0.0.0
+  HDFS-SITE.XML_dfs.namenode.http-bind-host: 0.0.0.0
+  HDFS-SITE.XML_dfs.namenode.datanode.registration.ip-hostname-check: "false"
+  HDFS-SITE.XML_dfs.client.use.datanode.hostname: "true"
+  HDFS-SITE.XML_dfs.datanode.use.datanode.hostname: "true"
+  HDFS-SITE.XML_dfs.blocksize: "16777216"
+
+services:
+  # Volumes are created owned by root; the Hadoop user is uid 1000. This runs once and exits.
+  hdfs-init:
+    <<: *hadoop
+    user: root
+    entrypoint: ["/bin/sh", "-c", "mkdir -p /hdfs-nn/nn /hdfs-dn1/dn /hdfs-dn2/dn && chown -R 1000:100 /hdfs-nn /hdfs-dn1 /hdfs-dn2"]
+    volumes: ["hdfs-nn:/hdfs-nn", "hdfs-dn1:/hdfs-dn1", "hdfs-dn2:/hdfs-dn2"]
+
+  namenode:
+    <<: *hadoop
+    hostname: namenode
+    depends_on:
+      hdfs-init: {condition: service_completed_successfully}
+    command:
+      - /bin/bash
+      - -c
+      - |
+        if [ ! -f /hdfs/nn/current/VERSION ]; then hdfs namenode -format -nonInteractive -force; fi
+        exec hdfs namenode
+    environment:
+      <<: *hdfsEnv
+      HDFS_NAMENODE_OPTS: "-Xmx512m -Xms128m"
+    mem_limit: 1g
+    # Container port 9870 is the WebHDFS/UI port. It is published on loopback only.
+    ports: ["127.0.0.1:${AEGISFS_HDFS_NN_PORT:-9870}:9870"]
+    volumes: ["hdfs-nn:/hdfs"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf 'http://localhost:9870/webhdfs/v1/?op=GETFILESTATUS' >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+  datanode1: &datanode
+    <<: *hadoop
+    hostname: datanode1
+    depends_on:
+      namenode: {condition: service_healthy}
+    command: ["hdfs", "datanode"]
+    environment:
+      <<: *hdfsEnv
+      HDFS_DATANODE_OPTS: "-Xmx256m -Xms64m"
+    mem_limit: 768m
+    volumes: ["hdfs-dn1:/hdfs"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9864/ >/dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+  datanode2:
+    <<: *datanode
+    hostname: datanode2
+    volumes: ["hdfs-dn2:/hdfs"]
+
+  # The connector runs in the same network so it can resolve the DataNode names. It is built
+  # from the shared integrations Dockerfile. The AegisFS credentials come from the same
+  # directory the core compose file mounts into the nodes.
+  connector:
+    image: aegisfs-integrations:dev
+    build:
+      context: ../..
+      dockerfile: deploy/docker/integrations.Dockerfile
+      target: integrations
+    profiles: ["hdfs"]
+    networks: [aegis]
+    entrypoint: ["sleep", "infinity"]
+    working_dir: /opt/aegisfs-integrations
+    environment:
+      AEGISFS_TLS_CA: /creds/ca.pem
+      AEGISFS_TLS_CERT: /creds/node.pem
+      AEGISFS_TLS_KEY: /creds/node.key
+      AEGISFS_TOKEN_FILE: /creds/token
+      AEGISFS_INT_AEGISFS_ENTRY: node0:9100
+      AEGISFS_INT_HDFS_NAMENODE_URL: http://namenode:9870
+      AEGISFS_INT_HDFS_ALLOW_INSECURE_HTTP: "1"
+      AEGISFS_INT_HDFS_ALLOWED_REDIRECT_HOSTS: datanode1,datanode2
+      AEGISFS_INT_HDFS_USER: aegisfs
+      AEGISFS_INT_HDFS_STATE_DIR: /state
+      AEGISFS_INT_HDFS_ROOT: /aegisfs-test
+    volumes:
+      - "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"
+      - "hdfs-connector-state:/state"
+      - "../../tests/integrations:/opt/aegisfs-integration-tests:ro"
+      - "../../extensions/integrations:/opt/aegisfs-integrations:ro"
+      - "../../benchmarks/integrations/hdfs:/benchmarks-out"
+    mem_limit: 1g
+
+volumes:
+  hdfs-nn: {}
+  hdfs-dn1: {}
+  hdfs-dn2: {}
+  hdfs-connector-state: {}
