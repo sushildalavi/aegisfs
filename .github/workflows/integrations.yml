@@ -1,0 +1,68 @@
+name: integrations
+
+# The optional Cassandra and HDFS integrations. These are kept apart from the core workflow so the
+# storage engine's checks never depend on either of them.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the Cassandra driver
+        run: |
+          python3 -m venv .venv-int
+          .venv-int/bin/pip install -q -r extensions/integrations/requirements.txt
+
+      - name: Shared layer tests
+        run: python3 -m unittest discover -s tests/integrations/shared -p "test*.py"
+
+      - name: HDFS connector unit tests (fake WebHDFS server)
+        run: cd tests/integrations/hdfs && python3 -m unittest testWebHdfs testTransfer testTls
+
+      - name: Cassandra index unit tests
+        run: cd tests/integrations/cassandra && ../../../.venv-int/bin/python -m unittest testCassandraModel testCassandraStore testCassandraSpool testCassandraSchema testCassandraIndexer
+
+      - name: Compose profiles stay optional
+        run: scripts/integrations/checkProfiles.sh
+
+      - name: No private keys or credentials committed
+        run: |
+          if git ls-files | xargs grep -lE -e '-----BEGIN [A-Z ]*PRIVATE KEY-----' 2>/dev/null; then
+            echo "a private key is committed" >&2; exit 1
+          fi
+          if git ls-files | grep -E '(^|/)(\.dev|\.dev-compose)/'; then
+            echo "throwaway credentials are committed" >&2; exit 1
+          fi
+
+  cassandra-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build clang libssl-dev
+      - name: Build the aegisfs client and node
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=RelWithDebInfo -DAEGISFS_BUILD_TESTS=OFF
+          cmake --build build --target aegisfs
+      - name: Live tests against Cassandra and a three-node AegisFS cluster
+        run: tests/integrations/cassandra/runLive.sh
+
+  hdfs-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Live tests against HDFS and AegisFS, inside the Compose network
+        run: tests/integrations/hdfs/runLive.sh
