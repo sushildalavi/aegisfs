@@ -66,11 +66,6 @@ data to the new members. A node that stops being a replica only deletes its copy
 replicas confirm they have everything. A background pass also checks segments against their
 checksums and repairs bad ones from a healthy peer.
 
-More detail is in [docs/architecture.md](docs/architecture.md), and
-[docs/designFaq.md](docs/designFaq.md) covers the reasoning behind the choices.
-[docs/invariants.md](docs/invariants.md) lists each property the code is meant to hold and the test
-that checks it.
-
 ## Performance
 
 Measured on one Apple M3 laptop with five nodes on loopback, replication factor 3, fsync on, and
@@ -82,40 +77,13 @@ every write checked on all three replicas before it is acknowledged.
 | p95 | 463 ms | 260 ms (-44%) |
 | throughput at the median | 332 MB/s | 528 MB/s |
 
-"Before" is commit `399efb5`, "after" is the current tree, each on a fresh cluster, alternated over
-four rounds with 40 samples per build. Two changes account for it: replicas now rename the spooled
-upload into place instead of copying it, and the background integrity check no longer re-hashes every
-stored segment every second. A 40% cut in the median was the goal and I did not reach it; what is
-left is the sequence of full passes over the data, which would need data forwarded to replicas
-while it is still arriving. The page [docs/benchmarks.md](docs/benchmarks.md) has the method, the
-other measurements and the caveats, including that this is one machine and loopback only.
-
-## Layout
-
-```
-src/, include/aegisfs/   node, client, ring, membership, storage, protocol
-tests/                   unit, integration, concurrency, chaos, python
-scripts/                 cluster launcher and demo; scripts/checks has the verification scripts
-benchmarks/              benchmark scripts and recorded results
-deploy/docker/           Dockerfiles and compose file
-extensions/              REST gateway, Prometheus exporter and Grafana dashboard
-docs/                    architecture, invariants, tradeoffs, operations, benchmarks, FAQ
-```
-
-## Building
-
-You need CMake 3.20 or newer, Ninja, a C++20 compiler (clang or gcc), OpenSSL 3 and Python 3.
-GoogleTest is downloaded by CMake. `scripts/bootstrap.sh` installs the dependencies on macOS
-(Homebrew) and Debian or Ubuntu.
-
-```bash
-cmake -S . -B build -G Ninja && cmake --build build
-scripts/demo.sh        # starts ten local nodes and walks through the features
-```
-
-Run `aegisfs help` for the client commands. A node takes `--data`, `--port`, `--seeds`, `--rf`, and
-optional TLS flags; see [docs/operations.md](docs/operations.md).
+Both builds ran on fresh clusters, alternated over four rounds with 40 samples each. Two changes
+account for the gain: replicas now rename the spooled upload into place instead of copying it, and the
+background integrity check no longer re-hashes every stored segment every second. A 40% cut in the
+median was the goal and I did not reach it. What is left is the chain of full passes over the data,
+and removing it would mean forwarding data to replicas while it is still arriving. This is one
+machine and loopback only, so treat the numbers as relative.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT.
