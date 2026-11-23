@@ -102,7 +102,7 @@ class Listener {
   Listener& operator=(const Listener&) = delete;
   Listener(Listener&& o) noexcept : fileDescriptor(o.fileDescriptor.exchange(-1)), portNumber(o.portNumber), context(o.context) { o.portNumber = 0; o.context = nullptr; }
   Listener& operator=(Listener&& o) noexcept {
-    if (this != &o) { close(); fileDescriptor.store(o.fileDescriptor.exchange(-1)); portNumber = o.portNumber; context = o.context; o.portNumber = 0; o.context = nullptr; }
+    if (this != &o) { close(); releaseContext(); fileDescriptor.store(o.fileDescriptor.exchange(-1)); portNumber = o.portNumber; context = o.context; o.portNumber = 0; o.context = nullptr; }
     return *this;
   }
   // Bind+listen on host:port. host "0.0.0.0" or "127.0.0.1". Returns valid()==false on error.
@@ -115,6 +115,7 @@ class Listener {
   void close();
 
  private:
+  void releaseContext();
   std::atomic<int> fileDescriptor{-1};
   int portNumber{0};
   void* context{nullptr};

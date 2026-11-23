@@ -9,12 +9,12 @@ case "$MODE" in
   asan)
     BUILD="$ROOT/build-asan"
     OPTION="-DAEGISFS_ENABLE_ASAN=ON"
-    FILTER='HashTest|RingTest|ProtocolTest|ManifestTest|StorageFixture|MembershipTest|CommonTest|MetricsTest|ThreadPoolTest'
+    FILTER='HashTest|RingTest|ProtocolTest|ManifestTest|StorageFixture|MembershipTest|CommonTest|MetricsTest|ThreadPoolTest|CrashPoints|Security|Striping'
     ;;
   tsan)
     BUILD="$ROOT/build-tsan"
     OPTION="-DAEGISFS_ENABLE_TSAN=ON"
-    FILTER='Concurrency|Stress|Chaos|MembershipTest'
+    FILTER='Concurrency|Stress|Chaos|MembershipTest|Striping|Security'
     ;;
   *)
     echo "usage: $0 {asan|tsan}" >&2

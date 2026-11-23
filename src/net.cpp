@@ -358,14 +358,21 @@ Status readFrameStreaming(
 }
 
 // ---- Listener ----
-Listener::~Listener() { close(); }
+// The TLS context is only freed on destruction or reassignment, never in close(): the accept loop
+// may still be reading it when close() runs, and those two run after that thread has been joined.
+void Listener::releaseContext() {
+  if (context) { SSL_CTX_free(static_cast<SSL_CTX*>(context)); context = nullptr; }
+}
+Listener::~Listener() {
+  close();
+  releaseContext();
+}
 void Listener::close() {
   int old = fileDescriptor.exchange(-1);
   if (old >= 0) {
     ::shutdown(old, SHUT_RDWR);  // wake a blocked accept()
     ::close(old);
   }
-  if (context) { SSL_CTX_free(static_cast<SSL_CTX*>(context)); context = nullptr; }
 }
 
 Listener Listener::bind(const std::string& host, int port, int backlog) {
