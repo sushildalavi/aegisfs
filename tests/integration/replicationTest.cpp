@@ -47,7 +47,7 @@ TEST(Replication, IdempotentReplay) {
   std::string fileId = makeFileId("idem/f");
   auto ls = c.ls("idem/f");
   ASSERT_TRUE(ls.ok());
-  std::string replica = ls.info.getOr("r0Addr");
+  std::string replica = ls.info.getOr("r0_addr");
 
   std::string payload = "SOME-APPEND-BYTES";
   SegmentRef seg;
@@ -135,7 +135,7 @@ TEST(Replication, MultiClientAppendsAllPresentOrdered) {
 
   Manifest m;
   auto ls = creator.ls("mc/f");
-  ASSERT_EQ(repl::fetchManifest(ls.info.getOr("r0Addr"), makeFileId("mc/f"), m), Status::Ok);
+  ASSERT_EQ(repl::fetchManifest(ls.info.getOr("r0_addr"), makeFileId("mc/f"), m), Status::Ok);
   std::map<std::string, std::vector<uint64_t>> seqs;
   int appends = 0;
   for (const auto& s : m.segments)

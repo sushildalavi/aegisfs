@@ -138,7 +138,7 @@ TEST(Integration, LsPresenceReflectsFailure) {
 
   // Kill one replica. After failure detection + re-replication, ls should again report 3 present
   // replicas (all on live nodes) — proving both the presence probe and healing work end to end.
-  std::string addr = ls.info.getOr("r0Addr");
+  std::string addr = ls.info.getOr("r0_addr");
   int idx = cl.indexOfAddr(addr);
   ASSERT_GE(idx, 0);
   cl.stopNode(idx);

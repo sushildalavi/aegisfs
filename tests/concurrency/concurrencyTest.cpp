@@ -41,7 +41,7 @@ TEST(Concurrency, ConcurrentAppendsNoDuplicateOrTornManifest) {
   auto ls = creator.ls("cc/f");
   ASSERT_TRUE(ls.ok());
   Manifest m;
-  ASSERT_EQ(repl::fetchManifest(ls.info.getOr("r0Addr"), fileId, m), Status::Ok);
+  ASSERT_EQ(repl::fetchManifest(ls.info.getOr("r0_addr"), fileId, m), Status::Ok);
 
   std::set<std::string> opIds;
   std::map<std::string, std::vector<uint64_t>> perClientSeqs;
