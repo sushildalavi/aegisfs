@@ -10,6 +10,7 @@ namespace {
 std::mutex gMutex;
 std::set<std::pair<std::string, std::string>> gBlocked;
 std::set<std::string> gBlockedAddresses;
+CrashHook gCrashHook;
 
 std::pair<std::string, std::string> ordered(const std::string& a, const std::string& b) {
   return a < b ? std::make_pair(a, b) : std::make_pair(b, a);
@@ -44,6 +45,20 @@ void unblockAllAddresses() {
 bool addressBlocked(const std::string& addr) {
   std::lock_guard<std::mutex> lk(gMutex);
   return gBlockedAddresses.count(addr) > 0;
+}
+
+void setCrashHook(CrashHook hook) {
+  std::lock_guard<std::mutex> lk(gMutex);
+  gCrashHook = std::move(hook);
+}
+
+bool crashPoint(const char* point) {
+  CrashHook hook;
+  {
+    std::lock_guard<std::mutex> lk(gMutex);
+    hook = gCrashHook;
+  }
+  return hook && hook(point);
 }
 
 }  // namespace aegisfs::fault

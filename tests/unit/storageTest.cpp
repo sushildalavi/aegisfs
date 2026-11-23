@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 
+#include "aegisfs/partition.hpp"
 #include "aegisfs/storage.hpp"
 
 using namespace aegisfs;
@@ -183,4 +184,117 @@ TEST_F(StorageFixture, CrashRecoveryDropsOrphanSegment) {
   ASSERT_TRUE(s2.loadManifest(fileId, m));
   EXPECT_EQ(m.segments.size(), 1u);  // only the committed base
   EXPECT_FALSE(fs::exists(directory + "/files/" + fileId + "/orphan.seg"));
+}
+
+// Crash injection: stop the write path at each durable step, reopen the store the way a restart
+// would, and check that the file is either exactly what was acknowledged before or exactly the new
+// version, never something in between.
+namespace {
+struct CrashScenario {
+  const char* point;
+  bool newVersionVisible;  // true if a crash at this point still leaves the new manifest committed
+};
+
+SegmentRef makeSeg(SegKind kind, const std::string& op, uint64_t seq, uint64_t ts,
+                   const std::string& data, const std::string& disk) {
+  SegmentRef r;
+  r.kind = kind; r.opId = op; r.clientId = "c"; r.clientSeq = seq; r.lamportTs = ts;
+  r.size = data.size(); r.sha = sha256(data); r.diskName = disk;
+  return r;
+}
+}  // namespace
+
+class CrashPoints : public StorageFixture, public ::testing::WithParamInterface<CrashScenario> {
+ protected:
+  void TearDown() override {
+    fault::setCrashHook(nullptr);
+    StorageFixture::TearDown();
+  }
+};
+
+TEST_P(CrashPoints, AppendIsAllOrNothingAfterRestart) {
+  const std::string base = "BASE-DATA";
+  const std::string extra = "APPENDED-DATA";
+  std::string fileId = makeFileId("doc");
+  Manifest v1;
+  v1.filename = "doc"; v1.fileId = fileId; v1.createOpId = "c0";
+  SegmentRef sb = makeSeg(SegKind::Base, "c0", 0, 1, base, "base.seg");
+  SegmentRef sa = makeSeg(SegKind::Append, "c1", 1, 2, extra, "a1.seg");
+  {
+    StorageEngine s(directory);
+    ASSERT_EQ(s.init(), Status::Ok);
+    ASSERT_EQ(s.putSegment(fileId, "base.seg", base, sb.sha), Status::Ok);
+    v1.addSegment(sb);
+    ASSERT_EQ(s.commitManifest(v1), Status::Ok);
+
+    const std::string target = GetParam().point;
+    fault::setCrashHook([&](const char* p) { return target == p; });
+    Status ps = s.putSegment(fileId, "a1.seg", extra, sa.sha);
+    if (ps == Status::Ok) {
+      Manifest v2 = v1;
+      v2.addSegment(sa);
+      EXPECT_NE(s.commitManifest(v2), Status::Ok) << "crash at " << target << " must fail the commit";
+    } else {
+      EXPECT_NE(ps, Status::Ok);
+    }
+    fault::setCrashHook(nullptr);
+  }  // the engine goes away without any cleanup, like a killed process
+
+  StorageEngine restarted(directory);
+  ASSERT_EQ(restarted.init(), Status::Ok);
+  Manifest m;
+  ASSERT_TRUE(restarted.loadManifest(fileId, m));
+  std::string out;
+  Sha256Digest fsha;
+  ASSERT_EQ(restarted.reconstruct(m, [&](const char* b, size_t n) { out.append(b, n); return true; }, fsha),
+            Status::Ok);
+  EXPECT_EQ(out, GetParam().newVersionVisible ? base + extra : base);
+  EXPECT_EQ(fsha, sha256(out));
+  // Nothing unreferenced or half-written survives recovery.
+  size_t entries = 0;
+  for (auto& e : fs::directory_iterator(fs::path(directory) / "files" / fileId)) { (void)e; ++entries; }
+  EXPECT_EQ(entries, m.segments.size() + 1);  // segments plus the manifest
+  EXPECT_TRUE(fs::is_empty(fs::path(directory) / "tmp"));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    EveryStep, CrashPoints,
+    ::testing::Values(CrashScenario{"segment.afterWrite", false},
+                      CrashScenario{"segment.afterFsync", false},
+                      CrashScenario{"segment.afterRename", false},
+                      CrashScenario{"manifest.afterWrite", false},
+                      CrashScenario{"manifest.afterFsync", false},
+                      CrashScenario{"manifest.afterRename", true}),
+    [](const ::testing::TestParamInfo<CrashScenario>& i) {
+      std::string n = i.param.point;
+      for (auto& ch : n) if (ch == '.') ch = '_';
+      return n;
+    });
+
+TEST_F(StorageFixture, CrashDuringFirstCreateLeavesNoFile) {
+  std::string fileId = makeFileId("fresh");
+  const std::string data = "NEW";
+  for (const char* point : {"segment.afterWrite", "segment.afterFsync", "segment.afterRename",
+                            "manifest.afterWrite", "manifest.afterFsync"}) {
+    fs::remove_all(directory);
+    {
+      StorageEngine s(directory);
+      ASSERT_EQ(s.init(), Status::Ok);
+      std::string target = point;
+      fault::setCrashHook([&](const char* p) { return target == p; });
+      Sha256Digest sha = sha256(data);
+      Status ps = s.putSegment(fileId, "base.seg", data, sha);
+      if (ps == Status::Ok) {
+        Manifest m;
+        m.filename = "fresh"; m.fileId = fileId; m.createOpId = "c0";
+        m.addSegment(makeSeg(SegKind::Base, "c0", 0, 1, data, "base.seg"));
+        EXPECT_NE(s.commitManifest(m), Status::Ok);
+      }
+      fault::setCrashHook(nullptr);
+    }
+    StorageEngine restarted(directory);
+    ASSERT_EQ(restarted.init(), Status::Ok);
+    EXPECT_FALSE(restarted.exists(fileId)) << "unacknowledged create survived a crash at " << point;
+    EXPECT_FALSE(fs::exists(fs::path(directory) / "files" / fileId)) << point;
+  }
 }

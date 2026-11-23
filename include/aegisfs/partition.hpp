@@ -1,4 +1,5 @@
 #pragma once
+#include <functional>
 #include <string>
 
 namespace aegisfs::fault {
@@ -22,5 +23,13 @@ bool partitionBlocked(const std::string& a, const std::string& b);
 void blockAddress(const std::string& addr);
 void unblockAllAddresses();
 bool addressBlocked(const std::string& addr);
+
+// Crash injection for the storage write path. The storage engine calls crashPoint(name) between
+// each durable step; if a test has installed a hook and it returns true for that name, the engine
+// abandons the operation on the spot, leaving the disk exactly as a process death at that moment
+// would (temp files not cleaned up, no later step run). Production never installs a hook.
+using CrashHook = std::function<bool(const char* point)>;
+void setCrashHook(CrashHook hook);
+bool crashPoint(const char* point);
 
 }  // namespace aegisfs::fault

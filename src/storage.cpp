@@ -1,5 +1,7 @@
 #include "aegisfs/storage.hpp"
 
+#include "aegisfs/partition.hpp"
+
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -151,14 +153,17 @@ Status StorageEngine::commitManifest(const Manifest& m) {
     if (w < 0) { ::close(fd); ::unlink(tmp.c_str()); return Status::IoError; }
     p += w; left -= static_cast<size_t>(w);
   }
+  if (fault::crashPoint("manifest.afterWrite")) { ::close(fd); return Status::IoError; }
   if (::fsync(fd) != 0) {
     ::close(fd);
     ::unlink(tmp.c_str());
     return Status::IoError;
   }
   ::close(fd);
+  if (fault::crashPoint("manifest.afterFsync")) return Status::IoError;
   std::string dst = dir + "/manifest";
   if (::rename(tmp.c_str(), dst.c_str()) != 0) { ::unlink(tmp.c_str()); return Status::IoError; }
+  if (fault::crashPoint("manifest.afterRename")) return Status::IoError;
   if (!fsyncPath(dir)) return Status::IoError;
   return Status::Ok;
 }
@@ -213,6 +218,7 @@ Status StorageEngine::putSegmentStream(const std::string& fileId, const std::str
     }
     got += n;
   }
+  if (fault::crashPoint("segment.afterWrite")) { ::close(fd); return Status::IoError; }
   if (::fsync(fd) != 0) {
     ::close(fd);
     ::unlink(tmp.c_str());
@@ -220,8 +226,10 @@ Status StorageEngine::putSegmentStream(const std::string& fileId, const std::str
   }
   ::close(fd);
   outSha = hasher.finalize();
+  if (fault::crashPoint("segment.afterFsync")) return Status::IoError;
   std::string dst = dir + "/" + diskName;
   if (::rename(tmp.c_str(), dst.c_str()) != 0) { ::unlink(tmp.c_str()); return Status::IoError; }
+  if (fault::crashPoint("segment.afterRename")) return Status::IoError;
   if (!fsyncPath(dir)) return Status::IoError;
   return Status::Ok;
 }
@@ -232,7 +240,9 @@ Status StorageEngine::commitSpooledSegment(const std::string& fileId, const std:
   std::string dir = filesDir() + "/" + fileId;
   if (!isOk(mkdirs(dir))) return Status::IoError;
   std::string dst = dir + "/" + diskName;
+  if (fault::crashPoint("spooled.beforeRename")) return Status::IoError;
   if (::rename(spooledPath.c_str(), dst.c_str()) != 0) return Status::IoError;
+  if (fault::crashPoint("spooled.afterRename")) return Status::IoError;
   if (!fsyncPath(dir)) return Status::IoError;
   return Status::Ok;
 }
