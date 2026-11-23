@@ -1,7 +1,7 @@
 """Opening a Cassandra session from Settings."""
 import ssl
 
-from .errors import DriverMissing, StoreUnavailable
+from .errors import DriverMissing, SecurityError, StoreUnavailable
 
 
 def import_driver():
@@ -56,6 +56,9 @@ def connect(settings, use_keyspace=True):
         session = cluster.connect(settings.keyspace) if use_keyspace else cluster.connect()
     except NoHostAvailable as exc:
         cluster.shutdown()
+        security = _security_problem(exc, settings)
+        if security:
+            raise SecurityError(security)
         if use_keyspace and "using keyspace" in str(exc):
             # The nodes answered, but the keyspace is missing: that needs `cassandra migrate`.
             from .errors import SchemaError
@@ -75,3 +78,32 @@ def connect(settings, use_keyspace=True):
 def _scrub(exc, settings):
     from ..config import redact
     return redact(str(exc), [settings.password])
+
+
+def _security_problem(exc, settings):
+    """Describe a login or certificate failure inside a NoHostAvailable, or return None.
+
+    The driver reports a failed handshake as a plain OSError/PermissionError whose text carries the
+    OpenSSL reason, so the text is checked as well as the exception type.
+    """
+    from cassandra import AuthenticationFailed
+    errors = getattr(exc, "errors", None)
+    errors = list(errors.values()) if isinstance(errors, dict) else []
+    for error in errors:
+        text = str(error)
+        if isinstance(error, AuthenticationFailed):
+            return ("Cassandra refused the login for user %r (check username and password_file)"
+                    % settings.username)
+        if isinstance(error, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in text:
+            return ("TLS certificate verification failed (%s). Check tls_ca_file; nothing was sent "
+                    "over an unverified connection" % _scrub(_reason(text), settings))
+        if isinstance(error, ssl.SSLError) or "[SSL:" in text:
+            return ("TLS handshake with Cassandra failed (%s). The server may not have TLS enabled; "
+                    "nothing was sent in plaintext" % _scrub(_reason(text), settings))
+    return None
+
+
+def _reason(text):
+    """The OpenSSL part of a driver error message, without the connection details around it."""
+    start = text.find("[SSL")
+    return text[start:] if start >= 0 else text

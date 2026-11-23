@@ -6,7 +6,7 @@ from ..aegisfsClient import AegisError
 from ..cli import CommandFailed, EXIT_FAILED, EXIT_OK, IntegrationUnavailable, emit
 from ..config import ConfigError
 from . import indexer, queries, schema
-from .errors import DriverMissing, SchemaError, StoreUnavailable
+from .errors import DriverMissing, SchemaError, SecurityError, StoreUnavailable
 from .model import ObservationError, utcnow_ms
 from .settings import Settings
 from .spool import Spool
@@ -96,7 +96,7 @@ def settings_for(args, cfg):
 def open_store(settings):
     try:
         return IndexStore.open(settings)
-    except DriverMissing as exc:
+    except (DriverMissing, SecurityError) as exc:
         raise IntegrationUnavailable(str(exc))
     except StoreUnavailable as exc:
         raise IntegrationUnavailable(str(exc))
@@ -108,7 +108,7 @@ def try_open_store(settings):
     """Like open_store, but returns None when Cassandra is down (work then goes to the spool)."""
     try:
         return IndexStore.open(settings)
-    except DriverMissing as exc:
+    except (DriverMissing, SecurityError) as exc:
         raise IntegrationUnavailable(str(exc))
     except StoreUnavailable:
         return None
@@ -125,7 +125,7 @@ def cmd_migrate(args, cfg, aegis):
     settings = settings_for(args, cfg)
     try:
         result = schema.run_migrate(settings)
-    except DriverMissing as exc:
+    except (DriverMissing, SecurityError) as exc:
         raise IntegrationUnavailable(str(exc))
     except StoreUnavailable as exc:
         raise IntegrationUnavailable(str(exc))
@@ -150,7 +150,7 @@ def cmd_status(args, cfg, aegis):
                "settings": settings.public_summary()}
     try:
         store = IndexStore.open(settings)
-    except DriverMissing as exc:
+    except (DriverMissing, SecurityError) as exc:
         payload["error"] = str(exc)
         emit(args, queries.labelled(payload), _status_text(payload))
         raise IntegrationUnavailable(str(exc))
