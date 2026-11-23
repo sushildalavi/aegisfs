@@ -89,7 +89,7 @@ services:
     environment:
       AEGISFS_ENTRY: node0:9100
       EXPORTER_PORT: "9108"
-    ports: ["9108:9108"]
+    ports: ["19108:9108"]
     depends_on: [node0]
     networks: [aegis]
 
