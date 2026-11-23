@@ -33,6 +33,17 @@ TEST(MembershipTest, HigherIncarnationWins) {
   EXPECT_EQ(out.state, MemberState::Failed);
 }
 
+TEST(MembershipTest, StaleIncarnationCannotChangeAddress) {
+  Membership m("self", "a:1");
+  m.merge({{"n2", "good:2", 7, MemberState::Alive, 0}});
+  m.merge({{"n2", "stale:9", 7, MemberState::Failed, 0}});
+
+  Member out;
+  ASSERT_TRUE(m.lookup("n2", out));
+  EXPECT_EQ(out.address, "good:2");
+  EXPECT_EQ(out.state, MemberState::Failed);
+}
+
 TEST(MembershipTest, IncarnationRefute) {
   Membership m("self", "a:1");
   uint64_t inc0 = m.selfIncarnation();
@@ -59,6 +70,14 @@ TEST(MembershipTest, SerializeRoundTrip) {
   std::vector<Member> out;
   ASSERT_TRUE(Membership::parse(buf, out));
   EXPECT_EQ(out.size(), 2u);
+}
+
+TEST(MembershipTest, RejectsTrailingGossipBytes) {
+  Membership m("self", "a:1");
+  std::string buf = m.serialize();
+  buf.push_back('\x7f');
+  std::vector<Member> out;
+  EXPECT_FALSE(Membership::parse(buf, out));
 }
 
 TEST(MembershipTest, LeftExcludedFromRingNodes) {
