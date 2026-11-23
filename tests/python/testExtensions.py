@@ -34,6 +34,35 @@ class FakeHeaders:
         return self.values.get(key, default)
 
 
+class GatewayIndexHookTest(unittest.TestCase):
+    """The optional Cassandra hook must be off by default and must never affect a reply."""
+
+    def test_hook_is_off_unless_a_spool_directory_is_configured(self):
+        with mock.patch.dict("os.environ", {}, clear=False):
+            import os
+            os.environ.pop("AEGISFS_INT_CASSANDRA_SPOOL_DIR", None)
+            with mock.patch.object(gateway.sys, "path", list(gateway.sys.path)) as path:
+                before = list(path)
+                gateway.observe("create", "a/b")
+                self.assertEqual(path, before)
+
+    def test_hook_queues_an_event_when_enabled(self):
+        import json
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as spool, \
+                mock.patch.dict("os.environ", {"AEGISFS_INT_CASSANDRA_SPOOL_DIR": spool}):
+            gateway.observe("create", "reports/q1.csv")
+            with open(os.path.join(spool, "pending.jsonl")) as handle:
+                events = [json.loads(line) for line in handle if line.strip()]
+        self.assertEqual([(e["op"], e["name"]) for e in events], [("create", "reports/q1.csv")])
+
+    def test_a_broken_hook_is_swallowed(self):
+        with mock.patch.dict("os.environ", {"AEGISFS_INT_CASSANDRA_SPOOL_DIR": "/proc/not-writable",
+                                            "AEGISFS_INTEGRATIONS_PATH": "/nonexistent"}):
+            gateway.observe("create", "a/b")  # must not raise
+
+
 class ExtensionTest(unittest.TestCase):
     def test_gateway_cli_parses_fields_and_stderr(self):
         completed = subprocess.CompletedProcess(

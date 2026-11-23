@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
@@ -10,6 +11,24 @@ from urllib.parse import unquote, urlparse
 BIN = os.environ.get("AEGISFS_BIN", "aegisfs")
 ENTRY = os.environ.get("AEGISFS_ENTRY", "127.0.0.1:9100")
 TOKEN = os.environ.get("AEGISFS_AUTH_TOKEN", "")
+
+def observe(op, name):
+    """Optionally tell the Cassandra index that a file changed.
+
+    Off unless AEGISFS_INT_CASSANDRA_SPOOL_DIR is set. The hook only appends a line to a local file,
+    and anything that goes wrong here is ignored, so it can never change the reply to the client.
+    """
+    if not os.environ.get("AEGISFS_INT_CASSANDRA_SPOOL_DIR"):
+        return
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        extra = os.environ.get("AEGISFS_INTEGRATIONS_PATH") or os.path.join(here, "..", "integrations")
+        if extra not in sys.path:
+            sys.path.insert(0, extra)
+        from aegisfsIntegrations.cassandra.hook import observe as queue_index
+        queue_index(op, name)
+    except Exception:
+        pass
 
 def cli(*args):
     p = subprocess.run([BIN, "--entry", ENTRY, *args], text=True, capture_output=True)
@@ -34,6 +53,8 @@ class Handler(BaseHTTPRequestHandler):
         with tempfile.NamedTemporaryFile() as f:
             f.write(body); f.flush(); code, fields, err = cli(op, f.name, name)
         status = 200 if fields.get("status") in ("OK", "DEGRADED") else 409
+        if status == 200:
+            observe(op, name)
         self._reply(status, {"status": fields.get("status", "NETWORK_ERROR"), "fields": fields, "error": err})
     def do_GET(self):
         if not self._authorized(): return self._reply(401, {"error": "unauthorized"})
