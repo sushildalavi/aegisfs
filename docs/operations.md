@@ -12,12 +12,13 @@ A node is just one process:
 aegisfs serve --data /var/lib/aegisfs/n0 --host 0.0.0.0 --port 9100 --id n0
 aegisfs serve --data /var/lib/aegisfs/n1 --host 0.0.0.0 --port 9101 --id n1 --seeds <seedhost>:9100
 ```
-Flags: `--rf <k>` (default 3), `--parallel 0|1` (replica fan-out; default 1).
+Flags: `--rf <k>` (default 3), `--parallel 0|1` (replica fan-out; default 1),
+`--scrub-interval-ms <n>` (how often stored segments are fully re-hashed; default 300000).
 
-Docker (on a host that has it):
+Docker (untested; see `docs/tradeoffs.md`):
 ```
-docker compose build && docker compose up -d
-docker compose exec node0 aegisfs --entry node0:9100 listMemIds
+docker compose -f deploy/docker/compose.yaml up -d --build
+docker compose -f deploy/docker/compose.yaml exec node0 aegisfs --entry node0:9100 listMemIds
 ```
 
 ## Health & inspection
@@ -35,39 +36,45 @@ aegisfs --entry <host:port> listStore       # files stored locally on that node
    is driven by `reconcilePlacement()` on the maintenance loop (default every ~1s). Verify with
    `ls <name>` + `getFromReplica <newaddr> <name> /tmp/x` and compare SHA-256.
 3. To bring the original node back with its data intact:
-   `scripts/cluster.sh restart <idx>` (process-local) — it rejoins and reconciles stale state.
+   `scripts/cluster.sh restart <idx>` (process-local). It rejoins and reconciles stale state.
 
 ## Monitoring repair / rebalance
 - After a failure or a join, watch `ls <name>` — the 3 replica addresses should settle onto live
   nodes within a few seconds.
 - `listStore` on a node that left the replica set should eventually show the file **gone** (safe
   handoff deletes a local copy only after the new replicas confirm they have the data).
-- Counters are tracked in-process (`metrics`): `replicate_put`, `replicate_append`, `handoff_delete`.
+- Counters are tracked in-process (`metrics`): `replicatePut`, `replicateAppend`, `handoffDelete`, `antiEntropyRepair`.
 
 ## Cleaning volumes
 ```
 scripts/cluster.sh stop
 rm -rf run/                 # process-local data dirs
 # Docker:
-docker compose down -v      # removes node volumes
+docker compose -f deploy/docker/compose.yaml down -v      # removes node volumes
 ```
 
 ## Troubleshooting
 | Symptom | Likely cause | Action |
 |---------|--------------|--------|
 | `NETWORK_ERROR cannot reach entry node` | wrong `--entry` or node down | check `scripts/cluster.sh status`, logs in `run/nodeN.log` |
-| `create` returns `DEGRADED` | fewer than 3 replicas reachable | restore nodes; retry; data is on `committed` replicas |
+| `create` returns `DEGRADED` | fewer than 3 replicas reachable, or fewer than 3 nodes in the ring | restore nodes; retry; data is on `committed` replicas |
 | `get` returns `STALE` | no replica meets read-your-writes watermark yet | retry; ensure the writing client's appends were acknowledged |
-| `merge` returns `CONFLICT` | a replica unreachable mid-merge | retry once the cluster is quiescent and all 3 replicas are up |
+| `merge`/`append` returns `CONFLICT` | two replicas hold genuinely different "first" bases for the same file (usually from a coordinator writing through a stale membership view during a partition or rapid join/leave) | not auto-resolved; inspect both bases with `getFromReplica`, decide which is authoritative, and manually repair the losing replica |
 | node "listening" but refused | stale process / port in use | `pkill -f "aegisfs serve"`, remove `run/`, restart |
 
 ## Reproducible tests
 ```
-ctest --test-dir build --output-on-failure        # 53 tests
-scripts/smokeTest.sh                              # 3-node e2e
+ctest --test-dir build --output-on-failure        # full C++ suite
+scripts/checks/smoke-test.sh                              # 3-node e2e
 scripts/demo.sh                                    # 10-node demo + fault injection
-benchmarks/runner/bench.sh                         # latency/throughput
-scripts/verifyDefinitionOfDone.sh               # full acceptance gate
+scripts/checks/reliability-test.sh                        # real-process two-failure + malformed frame
+benchmarks/run-matrix.sh                         # latency/throughput
+scripts/checks/verify-all.sh               # full acceptance gate
+```
+
+## Checking replica integrity by hand
+```
+scripts/checks/verify-integrity.sh <entry host:port> <name>   # compares all replicas' SHA-256 for one file
 ```
 
 ## Data layout on disk (per node `--data` dir)

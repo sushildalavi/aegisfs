@@ -1,8 +1,8 @@
 # AegisFS Architecture
 
-AegisFS is an original, fault-tolerant distributed file system inspired by HDFS (replicated
-block storage) and Cassandra (consistent-hash placement + gossip membership), exposing a
-HyDFS-compatible command set. It is **not** a port of Hadoop or Cassandra; all code is original.
+AegisFS is a fault-tolerant distributed file system. It borrows replicated storage from HDFS and
+consistent-hash placement and gossip membership from Cassandra, and its command set follows HyDFS.
+It is not a port of any of them.
 
 ## 1. Components
 
@@ -40,7 +40,7 @@ Every process is a single `aegisfs` binary that is simultaneously:
 - The ring is the sorted set of live member ring IDs. For a filename `f`, the **primary** is the
   first node whose ring ID ≥ `ringId(f)` (wrapping around), and replicas are the next 2 **distinct**
   successors. Default replication factor **RF = 3**.
-- Lookup is a binary search over the sorted ring: **O(log N)** per query, not O(1). (Stated honestly.)
+- Lookup is a binary search over the sorted ring: **O(log N)** per query, not O(1).
 
 ## 3. On-disk layout
 
@@ -83,7 +83,8 @@ Frame = `MAGIC(4) | VERSION(2) | TYPE(2) | HEADER_LEN(4) | HEADER | PAYLOAD_LEN(
 5. **Durability policy:** in a healthy cluster the op is acknowledged only after **all 3 replicas**
    durably commit (so any 2 can fail and the data survives). If fewer than 3 replicas are reachable,
    the op returns `DEGRADED` with the count that committed, and the caller decides (default CLI:
-   treat `DEGRADED` as a soft failure and retry). This policy is explicit, not "always available".
+   treat `DEGRADED` as a soft failure and retry). `DEGRADED` also covers a ring with fewer than
+   `rf` members, where fewer than three replicas exist to begin with.
 
 ## 6. Read path (get / getFromReplica)
 
@@ -99,13 +100,16 @@ Frame = `MAGIC(4) | VERSION(2) | TYPE(2) | HEADER_LEN(4) | HEADER | PAYLOAD_LEN(
   same client on every replica, because segments are ordered by `(clientId, clientSeq)` within a
   client and the client serializes its own appends (waits for ack before issuing the next).
 - **Cross-client order:** segments from different clients are totally ordered by
-  `(lamportTs, clientId, clientSeq)` — a deterministic tie-break — so once the cluster is quiescent
+  `(lamportTs, clientId, clientSeq)`, a deterministic tie-break, so once the cluster is quiescent
   all replicas converge to the identical byte sequence.
 - **merge:** reconciles all reachable designated replicas to the union of committed segments in the
   canonical order, then verifies every replica's reconstructed file has the same SHA-256. Returns
   success only when all reachable designated replicas are byte-identical.
-- **Anti-entropy:** a periodic background task compares manifests between replicas (by op-id set + per-
-  segment checksum) and pulls missing/repairs corrupt segments without dropping any acknowledged op.
+- **Anti-entropy:** a periodic background task compares manifests between replicas (by op-id set and
+  per-segment checksum) and pulls missing segments or repairs corrupt ones without dropping any
+  acknowledged op. Every cycle it checks that each local segment file exists and has the recorded
+  size. Re-reading and re-hashing the bytes runs once per file every `--scrub-interval-ms`
+  (default five minutes), since doing it every cycle costs a full pass over everything stored.
 
 ## 8. Membership and failure handling
 

@@ -4,7 +4,7 @@
 
 The C++ client retries transient network, timeout, unavailable, degraded, and stale results with
 bounded linear backoff. Uploads attach a stable `opId`, so a retry is an idempotent replay rather
-than a second append. Applications can tune this with `Client::set_retry_policy()`.
+than a second append. Applications can tune this with `Client::setRetryPolicy()`.
 
 ## TLS and authentication
 
@@ -26,17 +26,18 @@ contacted. `merge` remains the explicit operation for repairing divergent replic
 
 ## REST gateway and metrics
 
-Run `extensions/gateway/aegisfsGateway.py` with `AEGISFS_BIN`, `AEGISFS_ENTRY`, and optionally
+Run `extensions/gateway/gateway.py` with `AEGISFS_BIN`, `AEGISFS_ENTRY`, and optionally
 `AEGISFS_AUTH_TOKEN`. Endpoints are `GET /health`, `GET /status`, `GET /metrics`, `GET /files/{name}`
 for reads, `PUT /files/{name}` for create, and `POST /files/{name}` for append.
 
-`extensions/metrics/prometheusExporter.py` converts the existing metrics CLI output to Prometheus
+`extensions/metrics/exporter.py` converts the existing metrics CLI output to Prometheus
 exposition format. `extensions/metrics/prometheus.yml` and
-`extensions/metrics/grafana/dashboard.json` provide a starter monitoring stack. Compose starts the
-gateway, exporter, Prometheus, and Grafana alongside the ten nodes.
+`extensions/metrics/grafana/dashboard.json` provide a starter monitoring stack. The compose file in
+`deploy/docker/` starts the gateway, exporter, Prometheus and Grafana alongside the ten nodes.
 
 ## Docker Compose
 
-`scripts/composeSmokeTest.sh` validates the Compose file, builds the images, starts the stack,
-checks node health, and prints membership. It exits with a clear skip message when Docker is not
-installed on the host running it.
+`scripts/checks/compose-smoke-test.sh` validates the Compose file, builds the images, starts the stack,
+checks node health, and prints membership. It prints a skip message and exits 0 when Docker is
+not installed, which is the case on the machine this was written on, so the Compose setup has
+not been run.

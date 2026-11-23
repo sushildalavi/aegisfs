@@ -1,6 +1,6 @@
 # AegisFS Design Tradeoffs
 
-Decisions, the alternatives considered, and why. Updated as implementation proceeds.
+Decisions, the alternatives I looked at, and why I chose what I did.
 
 ## Networking: hand-rolled POSIX TCP + thread pool (vs Boost.Asio / gRPC)
 **Chosen:** length-framed binary RPC over blocking POSIX TCP sockets, served by a bounded thread pool.
@@ -18,8 +18,8 @@ reasoning simple; keeps a file's replicas co-located and predictable.
 **Cost:** no sub-file striping across many nodes; a single huge file's replicas are 3 nodes, not N.
 
 ## Ring lookup: O(log N) binary search (vs O(1) claims)
-We **do not** claim O(1) routing. Lookup is a binary search on a sorted ring; ownership changes on
-membership change are localized. Stated honestly in README and ARCHITECTURE.
+Lookup is a binary search on a sorted ring, so O(log N), not O(1). Ownership changes on a
+membership change are localized to the neighbouring ranges.
 
 ## Consistency vs availability under partition (CAP stance)
 **Chosen:** favor consistency for reads (read-your-writes) and require all 3 replicas for a *durable*
@@ -27,8 +27,9 @@ ack in the healthy case. During degraded membership, writes return `DEGRADED` wi
 rather than silently accepting weaker durability; reads that cannot meet the client watermark return
 `STALE` rather than serving stale bytes. This is CP-leaning for the partitioned minority.
 **Alternative:** Dynamo-style always-writable with hinted handoff + quorum reads (AP-leaning).
-**Why:** the assignment's correctness bar (read-your-writes, 2-failure survivability of 3-replica data)
-is cleaner to demonstrate and test under a CP-leaning policy. We expose the policy in responses.
+**Why:** read-your-writes and surviving two failures of three-replica data are easier to state and
+test under a CP-leaning policy. Responses carry the committed and rf counts, so a client can see
+how far a write got.
 
 ## Cross-client ordering: Lamport timestamp + stable tie-break (vs vector clocks / consensus)
 **Chosen:** total order `(lamportTs, clientId, clientSeq)` for segments; per-client order from the
@@ -48,8 +49,18 @@ idempotent to tolerate this.
 local metadata but not required; avoids a hidden "centralized DB" smell and keeps recovery transparent.
 
 ## Process-local cluster vs. Docker Compose
-**Chosen:** a 10-independent-node cluster is run as **process-local** nodes on distinct localhost
-ports (`scripts/cluster.sh`), which works with or without Docker installed. A `Dockerfile`/
-`compose.yaml` are also provided for environments with Docker available. This is an honest
-narrowing, not a mock: the distributed logic (separate processes, separate data directories, real
-TCP, real failures via `kill`) is exercised for real either way.
+**Chosen:** the 10-node cluster runs as separate processes on distinct localhost ports
+(`scripts/cluster.sh`), which needs nothing but the binary. The Dockerfiles and compose file in
+`deploy/docker/` do the same with containers, but I developed on a machine without Docker and
+have never run them. The processes are real, with their own data directories, real TCP and real
+failures via `kill`; what is missing is separate network stacks.
+
+## Integrity checking: stat every cycle, hash on a schedule
+**Chosen:** the maintenance loop stats every segment each cycle (missing or truncated files) and
+fully re-hashes a file's segments once per `--scrub-interval-ms`, five minutes by default.
+**Why:** the first version re-hashed everything each second. With a few 100 MiB files stored that
+was hundreds of megabytes of SHA-256 per node per second, and 100 MiB creates went from about
+250 ms to several seconds in a back-to-back benchmark.
+**Cost:** silent corruption that keeps a file's size can sit undetected for up to the scrub
+interval. Reads still verify checksums, so a bad segment is never served; it is just repaired
+later.
