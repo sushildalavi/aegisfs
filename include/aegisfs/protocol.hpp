@@ -37,7 +37,7 @@ enum class MsgType : uint16_t {
 };
 
 // A length-prefixed, binary-safe field bag for message headers.
-// Values are stored as strings (ints as decimal, digests as hex) — compact and robust.
+// Values are stored as strings (ints as decimal, digests as hex), compact and easy to parse.
 class Fields {
  public:
   void set(const std::string& k, const std::string& v);

@@ -70,7 +70,7 @@ TEST(Replication, IdempotentReplay) {
   };
   ASSERT_EQ(repl::replicateSegment(replica, fileId, "idem/f", "", seg, payload.size(), src, false),
             Status::Ok);
-  // second identical push (fresh source) — must be a no-op on the manifest
+  // second identical push (fresh source), must be a no-op on the manifest
   size_t off2 = 0;
   auto src2 = [&](char* b, size_t cap) -> size_t {
     size_t n = std::min(cap, payload.size() - off2);

@@ -37,7 +37,7 @@ MEM=$("$BIN" --entry "$E" listMemIds | wc -l | tr -d ' ')
 "$BIN" --entry "$E" listMemIds | head -5 | sed 's/^/     /'
 
 say "Create a 10 MiB file and show its 3 designated replicas"
-why "Placement is a pure function of the consistent-hash ring — no coordinator assigns it."
+why "Placement is a pure function of the consistent-hash ring, no coordinator assigns it."
 head -c $((10*1024*1024)) /dev/urandom > "$TMP/orig.bin"
 ORIG_SHA="$(sha "$TMP/orig.bin")"
 CRES="$("$BIN" --entry "$E" create "$TMP/orig.bin" demo/payload)"
@@ -49,7 +49,7 @@ R0="$(getfield r0_addr "$LS")"; R1="$(getfield r1_addr "$LS")"; R2="$(getfield r
 ok "replicas: $R0 $R1 $R2"
 
 say "Get the file back and verify SHA-256"
-why "Read from a node that never wrote the file — it still fetches and streams the full copy."
+why "Read from a node that never wrote the file, it still fetches and streams the full copy."
 "$BIN" --entry "127.0.0.1:$((BASE+5))" get demo/payload "$TMP/get.bin" >/dev/null
 [ "$(sha "$TMP/get.bin")" = "$ORIG_SHA" ] && ok "get byte-identical ($ORIG_SHA)" || bad "get SHA mismatch"
 
@@ -95,7 +95,7 @@ else
 fi
 
 say "Recovery: wait for automatic re-replication to restore RF=3"
-why "No operator action taken — gossip detects the failures and re-places the missing replicas."
+why "No operator action taken, gossip detects the failures and re-places the missing replicas."
 sleep 6
 LS2="$("$BIN" --entry "127.0.0.1:$((BASE+ENTRY_IDX))" ls demo/payload)"
 NEW=0

@@ -9,8 +9,8 @@
 using namespace aegisfs;
 using namespace aegisfs::test;
 
-// A point-to-point network partition — two nodes can't reach each other directly, but every
-// other node can still reach both — must not cause either side to declare the other failed.
+// A point-to-point network partition, two nodes can't reach each other directly, but every
+// other node can still reach both, must not cause either side to declare the other failed.
 // Without SWIM's indirect probe ("ping-req"), a direct-probe failure alone would be enough to
 // mark a perfectly healthy peer suspect; this test blocks only the direct path between two
 // nodes and asserts neither one is ever marked down.
@@ -24,7 +24,7 @@ TEST(Chaos, IndirectProbeSurvivesPointToPointPartition) {
   fault::partitionBlock(a, b);
 
   // Give the failure detector several probe cycles to run (test fixture: probeIntervalMs=120,
-  // suspectMs=300) — long enough that, without indirect probing, both sides would have been
+  // suspectMs=300), long enough that, without indirect probing, both sides would have been
   // marked suspect and then failed by now.
   auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(2000);
   bool everFailed = false;
@@ -41,7 +41,7 @@ TEST(Chaos, IndirectProbeSurvivesPointToPointPartition) {
   fault::partitionHealAll();
 }
 
-// A node that is genuinely unreachable by everyone — not just one peer — must still be detected
+// A node that is unreachable by everyone, not just one peer, must still be detected
 // as failed. This guards against the indirect-probe fix above accidentally masking real failures.
 TEST(Chaos, TrueIsolationStillDetectedAsFailed) {
   Cluster cl(5);

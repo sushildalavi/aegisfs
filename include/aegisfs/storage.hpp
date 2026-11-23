@@ -46,7 +46,7 @@ class StorageEngine {
   Status commitSpooledSegment(const std::string& fileId, const std::string& diskName,
                                 const std::string& spooledPath);
 
-  // Size in bytes of a stored segment file, or false if it is missing. Cheap (one stat) — used
+  // Size in bytes of a stored segment file, or false if it is missing. Cheap (one stat), used
   // by the background scrubber to notice missing or truncated segments without re-hashing.
   bool segmentSize(const std::string& fileId, const std::string& diskName, uint64_t& out) const;
 

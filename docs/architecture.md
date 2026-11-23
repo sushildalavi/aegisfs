@@ -124,7 +124,7 @@ Frame = `MAGIC(4) | VERSION(2) | TYPE(2) | HEADER_LEN(4) | HEADER | PAYLOAD_LEN(
 ## 9. Concurrency
 
 - Bounded `ThreadPool` for RPC handling; streaming avoids large allocations.
-- Per-file locking (`shared_mutex` keyed by fileId) — **no global cluster lock**. Manifest commits
+- Per-file locking (`shared_mutex` keyed by fileId), **no global cluster lock**. Manifest commits
   are atomic; concurrent appends to the same file are serialized only at that file's granularity.
 
 ## 10. Diagrams

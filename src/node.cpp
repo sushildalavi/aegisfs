@@ -252,7 +252,7 @@ void Node::hReplicate(Conn& c, Fields& h, uint64_t plen, bool isBase) {
     return;
   }
   // got == seg.sha was just confirmed above, and tmp is used for exactly this one commit (no
-  // other target reads from it afterward, unlike fanout's shared srcPath) — safe to skip
+  // other target reads from it afterward, unlike fanout's shared srcPath), safe to skip
   // re-verifying and commit the spooled file directly instead of copying it through another.
   Status cs;
   {
@@ -345,7 +345,7 @@ void Node::hGetFromReplica(Conn& c, Frame& fr) {
   // each chunk is read, so if we streamed straight to the network and only found a mismatch
   // after a segment finished, the corrupted bytes would already be on the wire with a header
   // that had already claimed Status::Ok. Running the verifying pass first, against a no-op
-  // sink, means a corrupt segment is caught before any reply — at the cost of reading local
+  // sink, means a corrupt segment is caught before any reply, at the cost of reading local
   // disk twice for a healthy file, which is the trade made deliberately here.
   Sha256Digest fsha{};
   Status fs = storageEngine->fileSha(m, fsha);
@@ -633,7 +633,7 @@ void Node::hCreate(Conn& c, Fields& h, uint64_t plen) {
     // The primary is the sole arbiter of first-create-only for this file (it's the node every
     // coordinator writes to first and that atomically rejects a duplicate base). If the primary
     // write itself fails, we must not fall through to writing the base on the secondaries
-    // instead — that would leave the primary empty while secondaries hold a base, so a later
+    // instead, that would leave the primary empty while secondaries hold a base, so a later
     // retry against the now-recovered primary could commit a *different* base there, with two
     // conflicting "first" bases now split across the replica set for the same file.
     fs::remove(tmp);
@@ -680,7 +680,7 @@ Status Node::authoritativeManifest(const std::string& filename, Manifest& out,
           if (merged.hasOp(s.opId)) continue;  // idempotent replay of an already-known op
           // addSegment refused this op for a reason other than "already have it": either a
           // disk-name collision or, most importantly, a second Base under a different opId.
-          // That means two replicas disagree about which write actually "created" this file —
+          // That means two replicas disagree about which write actually "created" this file:
           // a real conflict, not something a merge can silently resolve by picking one side.
           if (s.kind == SegKind::Base) return Status::Conflict;
         }
@@ -993,7 +993,7 @@ void Node::failureDetectorLoop() {
       // Direct probe failed. Before declaring the peer suspect, ask a handful of other alive
       // members to probe it on our behalf (SWIM's indirect probe / "ping-req"). This is what
       // tells a point-to-point partition (we personally can't reach it, everyone else can)
-      // apart from an actual failure (nobody can reach it) — without indirect probing, every
+      // apart from an actual failure (nobody can reach it), without indirect probing, every
       // node on the wrong side of a partition would wrongly declare the other side dead.
       bool confirmedByHelper = false;
       int asked = 0;

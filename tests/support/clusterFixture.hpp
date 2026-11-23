@@ -104,7 +104,7 @@ class Cluster {
     return i;
   }
 
-  // Stop (graceful) node i — leaves its data dir intact (like a clean crash).
+  // Stop (graceful) node i, leaves its data dir intact (like a clean crash).
   void stopNode(size_t i) {
     if (ringNodes[i]) { ringNodes[i]->stop(); ringNodes[i].reset(); }
   }

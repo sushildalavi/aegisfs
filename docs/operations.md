@@ -39,7 +39,7 @@ aegisfs --entry <host:port> listStore       # files stored locally on that node
    `scripts/cluster.sh restart <idx>` (process-local). It rejoins and reconciles stale state.
 
 ## Monitoring repair / rebalance
-- After a failure or a join, watch `ls <name>` — the 3 replica addresses should settle onto live
+- After a failure or a join, watch `ls <name>`, the 3 replica addresses should settle onto live
   nodes within a few seconds.
 - `listStore` on a node that left the replica set should eventually show the file **gone** (safe
   handoff deletes a local copy only after the new replicas confirm they have the data).
@@ -59,7 +59,7 @@ docker compose -f deploy/docker/compose.yaml down -v      # removes node volumes
 | `NETWORK_ERROR cannot reach entry node` | wrong `--entry` or node down | check `scripts/cluster.sh status`, logs in `run/nodeN.log` |
 | `create` returns `DEGRADED` | fewer than 3 replicas reachable, or fewer than 3 nodes in the ring | restore nodes; retry; data is on `committed` replicas |
 | `get` returns `STALE` | no replica meets read-your-writes watermark yet | retry; ensure the writing client's appends were acknowledged |
-| `merge`/`append` returns `CONFLICT` | two replicas hold genuinely different "first" bases for the same file (usually from a coordinator writing through a stale membership view during a partition or rapid join/leave) | not auto-resolved; inspect both bases with `getFromReplica`, decide which is authoritative, and manually repair the losing replica |
+| `merge`/`append` returns `CONFLICT` | two replicas hold different "first" bases for the same file (usually from a coordinator writing through a stale membership view during a partition or rapid join/leave) | not auto-resolved; inspect both bases with `getFromReplica`, decide which is authoritative, and manually repair the losing replica |
 | node "listening" but refused | stale process / port in use | `pkill -f "aegisfs serve"`, remove `run/`, restart |
 
 ## Reproducible tests

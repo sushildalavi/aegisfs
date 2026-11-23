@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Same create/get timing matrix as run-matrix.sh, but against an already-running cluster instead of
-# one this script starts itself — for measuring over a real network between separate machines
+# one this script starts itself, for measuring over a real network between separate machines
 # rather than loopback on one host. This script does not start, stop, or otherwise control the
 # cluster; point it at any live entry node and it just measures.
 #
 # Usage: run-remote.sh <entry_host:port> [output_name]
 #   benchmarks/run-remote.sh 10.0.0.5:9100 wan
 #
-# Setup (on genuinely separate machines or network-isolated hosts):
+# Setup (on separate machines or network-isolated hosts):
 #   host A: aegisfs serve --data /tmp/a --host 0.0.0.0 --port 9100 --id a
 #   host B: aegisfs serve --data /tmp/b --host 0.0.0.0 --port 9100 --id b --seeds <hostA>:9100
 #   host C: aegisfs serve --data /tmp/c --host 0.0.0.0 --port 9100 --id c --seeds <hostA>:9100
@@ -31,7 +31,7 @@ trap 'rm -rf "$TMP"' EXIT
 now_ms(){ python3 -c 'import time;print(int(time.time()*1000))'; }
 
 if ! "$BIN" --entry "$ENTRY" health >/dev/null 2>&1; then
-  echo "cannot reach $ENTRY — start a real cluster and pass a live entry address" >&2
+  echo "cannot reach $ENTRY, start a real cluster and pass a live entry address" >&2
   exit 1
 fi
 

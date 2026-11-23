@@ -27,7 +27,7 @@ TEST(HashTest, HexRoundTrip) {
 }
 
 TEST(HashTest, RingIdDeterministic) {
-  // Stable across calls / processes — never std::hash.
+  // Stable across calls / processes, never std::hash.
   EXPECT_EQ(ringId("node-A"), ringId("node-A"));
   EXPECT_NE(ringId("node-A"), ringId("node-B"));
 }

@@ -49,7 +49,7 @@ int exitCode(Status s) { return isOk(s) ? 0 : (static_cast<int>(s) == 0 ? 1 : st
 
 void printHelp() {
   std::cout <<
-      "AegisFS — fault-tolerant distributed file system\n\n"
+      "AegisFS: fault-tolerant distributed file system\n\n"
       "Run a node:\n"
       "  aegisfs serve --data <dir> [--host 127.0.0.1] [--port N] [--id NAME]\n"
       "                [--seeds host:port,host:port] [--rf 3]\n"
@@ -183,7 +183,7 @@ int runClient(const std::string& entry, std::vector<std::string> cmd) {
 }  // namespace
 
 int runShell(const std::string& entry) {
-  std::cout << "AegisFS shell — entry " << entry << " (type 'help', 'quit' to exit)\n";
+  std::cout << "AegisFS shell: entry " << entry << " (type 'help', 'quit' to exit)\n";
   std::string line;
   while (true) {
     std::cout << "aegisfs> " << std::flush;

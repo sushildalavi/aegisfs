@@ -37,7 +37,7 @@ struct NodeConfig {
   int scrubIntervalMs{300000};
   // SWIM-style indirect probing: when a direct probe to a peer fails, ask this many other
   // alive members to probe it on our behalf before declaring it suspect. This is what lets the
-  // cluster tell "that one peer is actually down" apart from "I personally can't reach it" —
+  // cluster tell "that one peer is actually down" apart from "I personally can't reach it":
   // the second case is a point-to-point network partition, not a failure.
   int indirectProbeCount{3};
 };
@@ -107,8 +107,8 @@ class Node {
                        Sha256Digest& sha);
   // Apply a segment to the LOCAL store + manifest (no network, no file-lock; caller holds it).
   // `srcVerified` must be true ONLY when the caller already confirmed srcPath's content hashes
-  // to seg.sha in this same request (true for a coordinator's own spooled upload — it just
-  // computed that hash itself) — it skips re-reading and re-hashing the file and commits it with
+  // to seg.sha in this same request (true for a coordinator's own spooled upload, it just
+  // computed that hash itself), it skips re-reading and re-hashing the file and commits it with
   // a durable rename instead, rather than copying it through a second temp file. Repair paths
   // (merge, anti-entropy) fetch srcPath from a peer with no such guarantee and must leave this
   // false, since the resulting re-verification is their only defense against a bad fetch.

@@ -208,8 +208,8 @@ TEST(Chaos, JoinKeepsFilesAvailable) {
   }
 }
 
-// If the primary replica for a file dies right as a create is issued — after this coordinator's
-// placement still lists it as alive, before the failure detector catches up — the write to the
+// If the primary replica for a file dies right as a create is issued, after this coordinator's
+// placement still lists it as alive, before the failure detector catches up, the write to the
 // primary fails. The coordinator must treat that as a hard failure rather than falling through
 // to write the base on the secondaries instead: otherwise the primary comes back up still empty,
 // and a second create with different content could commit a competing base there.
@@ -240,7 +240,7 @@ TEST(Chaos, PrimaryFailureDuringCreateDoesNotOrphanBase) {
   once.maxAttempts = 1;
   c.setRetryPolicy(once);
 
-  // Make the primary undialable without actually stopping it — a real kill takes long enough
+  // Make the primary undialable without actually stopping it, a real kill takes long enough
   // (closing the listener, joining its background threads) that the failure detector has
   // usually already excluded it from placement by the time a racing create runs, which would
   // make this test pass for the wrong reason. Blocking the address directly keeps the node (and
