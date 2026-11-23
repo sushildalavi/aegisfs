@@ -22,11 +22,17 @@ class TlsTests(unittest.TestCase):
         def run(*cmd):
             subprocess.run(cmd, cwd=d, check=True, capture_output=True)
         run("openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
-            "-subj", "/CN=test-ca", "-keyout", "ca.key", "-out", "ca.pem")
+            "-subj", "/CN=test-ca", "-keyout", "ca.key", "-out", "ca.pem",
+            "-addext", "basicConstraints=critical,CA:TRUE",
+            "-addext", "keyUsage=critical,keyCertSign,cRLSign")
         run("openssl", "req", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=localhost",
             "-keyout", "node.key", "-out", "node.csr")
         with open(os.path.join(d, "ext"), "w") as handle:
-            handle.write("subjectAltName=IP:127.0.0.1,DNS:localhost\n")
+            # Python 3.13 and newer verify strictly, so the certificate has to be well formed.
+            handle.write("subjectAltName=IP:127.0.0.1,DNS:localhost\n"
+                         "basicConstraints=critical,CA:FALSE\n"
+                         "keyUsage=critical,digitalSignature,keyEncipherment\n"
+                         "extendedKeyUsage=serverAuth\n")
         run("openssl", "x509", "-req", "-in", "node.csr", "-CA", "ca.pem", "-CAkey", "ca.key",
             "-CAcreateserial", "-days", "2", "-extfile", "ext", "-out", "node.pem")
         cls.ca = os.path.join(d, "ca.pem")
