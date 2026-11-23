@@ -119,6 +119,20 @@ design. Every operation also starts a new client process, so these figures inclu
 and a TCP connect and are a floor for what the nodes can do. `Stress.MixedWorkloadThousandsOfOps`
 drives a similar mix inside one process without that overhead.
 
+## In containers, with TLS on
+
+One more data point, taken once and not part of the comparison above: ten Docker Compose nodes (each
+with its own network address, TLS and the cluster token on, which the numbers above leave off), and
+ten 100 MiB creates timed from inside the `node0` container.
+
+| Samples | Min | Median | Max |
+|---|---|---|---|
+| 10 | 402 ms | 487 ms | 759 ms |
+
+This is still one physical machine, with Docker's virtual machine in between, ten nodes instead of
+five, and encryption on every hop, so it is not comparable with the loopback figures and says little
+about separate hosts. I have not run AegisFS across real machines.
+
 ## Limits of these results
 
 - One machine, loopback only. No latency between nodes, so the benefit of overlapping replica
