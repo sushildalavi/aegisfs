@@ -178,3 +178,18 @@ TEST(Integration, InvalidFilenameRejected) {
   EXPECT_EQ(c.create(in, "../escape").status, Status::InvalidArgument);
   EXPECT_EQ(c.create(in, "/abs/path").status, Status::InvalidArgument);
 }
+
+// With only two members in the ring there are only two designated replicas, so a create can
+// commit everywhere it was asked to and still miss the replication factor. That has to be
+// reported as DEGRADED, not OK.
+TEST(Integration, CreateOnTwoNodeRingIsDegraded) {
+  Cluster cl(2);
+  ASSERT_TRUE(cl.awaitConvergence(2));
+  std::string in = makeTempFile("two", 4096, 3);
+  Client c = cl.client(0, "c1");
+  auto r = c.create(in, "two/file");
+  EXPECT_EQ(r.status, Status::Degraded) << statusName(r.status);
+  std::string out = cl.root() + "/outTwo.bin";
+  ASSERT_TRUE(c.get("two/file", out).ok());
+  EXPECT_EQ(fileShaHex(in), fileShaHex(out));
+}

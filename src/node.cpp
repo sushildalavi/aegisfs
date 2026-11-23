@@ -649,7 +649,10 @@ void Node::hCreate(Conn& c, Fields& h, uint64_t plen) {
   reply.setI64("rf", config.rf);
   for (size_t i = 0; i < reps.size(); ++i)
     reply.set("r" + std::to_string(i), reps[i].address);
-  Status final = (committed == static_cast<int>(reps.size())) ? Status::Ok : Status::Degraded;
+  // OK means every one of the rf designated replicas committed. If the ring currently has fewer
+  // than rf members there are fewer designated replicas, and that is still a degraded write.
+  Status final = (committed == static_cast<int>(reps.size()) && committed >= config.rf)
+                     ? Status::Ok : Status::Degraded;
   if (committed == 0) final = Status::Unavailable;
   repl::sendReply(c, final, reply);
 }
@@ -749,7 +752,10 @@ void Node::hAppend(Conn& c, Fields& h, uint64_t plen) {
   reply.setI64("committed", committed);
   reply.setU64("clientSeq", seq);
   reply.set("opId", opId);
-  Status final = (committed == static_cast<int>(reps.size())) ? Status::Ok : Status::Degraded;
+  // OK means every one of the rf designated replicas committed. If the ring currently has fewer
+  // than rf members there are fewer designated replicas, and that is still a degraded write.
+  Status final = (committed == static_cast<int>(reps.size()) && committed >= config.rf)
+                     ? Status::Ok : Status::Degraded;
   if (committed == 0) final = Status::Unavailable;
   repl::sendReply(c, final, reply);
 }
