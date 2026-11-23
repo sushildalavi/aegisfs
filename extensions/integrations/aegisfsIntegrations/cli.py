@@ -63,6 +63,7 @@ def build_parser():
         except ImportError as exc:
             # The area's own code is missing. Offer a stub so --help still lists it.
             stub = areas.add_parser(name, help="unavailable: %s" % exc)
+            stub.add_argument("rest", nargs=argparse.REMAINDER)
             stub.set_defaults(handler=_unavailable(name, exc))
             continue
         module.register(areas)
