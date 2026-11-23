@@ -69,5 +69,5 @@ run_matrix "parallel" 1
 
 echo "Raw results -> $RESULTS/raw.csv"
 python3 "$ROOT/benchmarks/analyze.py" "$RESULTS/raw.csv" "$RESULTS"
-python3 "$ROOT/benchmarks/validate-results.py" "$RESULTS/raw.csv"
+python3 "$ROOT/benchmarks/validateResults.py" "$RESULTS/raw.csv"
 echo "Done."

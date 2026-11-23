@@ -18,29 +18,29 @@ test: build test-python
 	ctest --test-dir $(BUILD) --output-on-failure
 
 test-python:
-	python3 tests/python/test_extensions.py
-	python3 tests/python/test_operation_history.py
+	python3 tests/python/testExtensions.py
+	python3 tests/python/testOperationHistory.py
 
 smoke: build
-	scripts/checks/smoke-test.sh
+	scripts/checks/smokeTest.sh
 
 demo: build
 	scripts/demo.sh
 
 bench: build
-	benchmarks/run-matrix.sh
+	benchmarks/runMatrix.sh
 
 asan:
-	scripts/checks/sanitizer-test.sh asan
+	scripts/checks/sanitizerTest.sh asan
 
 tsan:
-	scripts/checks/sanitizer-test.sh tsan
+	scripts/checks/sanitizerTest.sh tsan
 
 reliability: build
-	scripts/checks/reliability-test.sh
+	scripts/checks/reliabilityTest.sh
 
 verify: build
-	scripts/checks/verify-all.sh
+	scripts/checks/verifyAll.sh
 
 clean:
 	rm -rf $(BUILD) build-asan build-tsan run run-bench

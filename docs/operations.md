@@ -65,16 +65,16 @@ docker compose -f deploy/docker/compose.yaml down -v      # removes node volumes
 ## Reproducible tests
 ```
 ctest --test-dir build --output-on-failure        # full C++ suite
-scripts/checks/smoke-test.sh                              # 3-node e2e
+scripts/checks/smokeTest.sh                              # 3-node e2e
 scripts/demo.sh                                    # 10-node demo + fault injection
-scripts/checks/reliability-test.sh                        # real-process two-failure + malformed frame
-benchmarks/run-matrix.sh                         # latency/throughput
-scripts/checks/verify-all.sh               # full acceptance gate
+scripts/checks/reliabilityTest.sh                        # real-process two-failure + malformed frame
+benchmarks/runMatrix.sh                         # latency/throughput
+scripts/checks/verifyAll.sh               # full acceptance gate
 ```
 
 ## Checking replica integrity by hand
 ```
-scripts/checks/verify-integrity.sh <entry host:port> <name>   # compares all replicas' SHA-256 for one file
+scripts/checks/verifyIntegrity.sh <entry host:port> <name>   # compares all replicas' SHA-256 for one file
 ```
 
 ## Data layout on disk (per node `--data` dir)

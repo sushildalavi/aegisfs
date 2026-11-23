@@ -37,7 +37,7 @@ exposition format. `extensions/metrics/prometheus.yml` and
 
 ## Docker Compose
 
-`scripts/checks/compose-smoke-test.sh` validates the Compose file, builds the images, starts the stack,
+`scripts/checks/composeSmokeTest.sh` validates the Compose file, builds the images, starts the stack,
 checks node health, and prints membership. It prints a skip message and exits 0 when Docker is
 not installed, which is the case on the machine this was written on, so the Compose setup has
 not been run.

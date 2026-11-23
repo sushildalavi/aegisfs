@@ -22,7 +22,7 @@ between builds are not affected, because both builds use the same call.
 
 ## Creating a 100 MiB file: before and after
 
-The question was whether recent changes made replicated creates faster. `benchmarks/compare-builds.py`
+The question was whether recent changes made replicated creates faster. `benchmarks/compareBuilds.py`
 runs two binaries on separate fresh 5-node clusters, one at a time, alternating which goes first over
 four rounds. Each round does one warm-up create and then ten timed ones.
 
@@ -82,7 +82,7 @@ testing.
 
 ## Size and fan-out matrix
 
-`benchmarks/run-matrix.sh`. Five repetitions per point on a fresh 5-node cluster for each fan-out
+`benchmarks/runMatrix.sh`. Five repetitions per point on a fresh 5-node cluster for each fan-out
 mode. With five samples, p95 and p99 are just the slowest runs, so read them as a rough ceiling.
 
 | Operation | Size | Sequential mean | Parallel mean | Parallel p95 | Parallel MB/s |
@@ -103,7 +103,7 @@ noise.
 
 ## Concurrency
 
-`benchmarks/run-concurrency.sh` starts N clients at once, each doing 1 create and 19 appends to its
+`benchmarks/runConcurrency.sh` starts N clients at once, each doing 1 create and 19 appends to its
 own file on a 5-node cluster.
 
 | Clients | Operations | Wall time | Operations/s |
@@ -122,7 +122,7 @@ drives a similar mix inside one process without that overhead.
 ## Limits of these results
 
 - One machine, loopback only. No latency between nodes, so the benefit of overlapping replica
-  transfers on a real network is understated. `benchmarks/run-remote.sh` can time a cluster that is
+  transfers on a real network is understated. `benchmarks/runRemote.sh` can time a cluster that is
   already running elsewhere, but I have not had separate machines to run it on.
 - Replicas share a host's CPU, memory and disk, so absolute MB/s says little about a real
   deployment.
@@ -134,9 +134,9 @@ drives a similar mix inside one process without that overhead.
 
 ```
 cmake --build build
-benchmarks/run-matrix.sh                 # size and fan-out matrix -> benchmarks/results/
-benchmarks/run-concurrency.sh            # concurrency scaling
-python3 benchmarks/compare-builds.py --a /path/to/old/aegisfs --b build/aegisfs
+benchmarks/runMatrix.sh                 # size and fan-out matrix -> benchmarks/results/
+benchmarks/runConcurrency.sh            # concurrency scaling
+python3 benchmarks/compareBuilds.py --a /path/to/old/aegisfs --b build/aegisfs
 ```
 
 To compare against an earlier commit, build it in a separate worktree

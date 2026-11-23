@@ -26,25 +26,25 @@ else
 fi
 
 hdr "Python extension and operation-history tests"
-if python3 tests/python/test_extensions.py >/tmp/aegis_pytest.log 2>&1 \
-   && python3 tests/python/test_operation_history.py >>/tmp/aegis_pytest.log 2>&1; then
+if python3 tests/python/testExtensions.py >/tmp/aegis_pytest.log 2>&1 \
+   && python3 tests/python/testOperationHistory.py >>/tmp/aegis_pytest.log 2>&1; then
   pass "python tests passed"
 else
   fail "python tests failed (see /tmp/aegis_pytest.log)"; tail -8 /tmp/aegis_pytest.log
 fi
 
 hdr "Smoke test (3-node e2e)"
-if ./scripts/checks/smoke-test.sh >/tmp/aegis_smoke.log 2>&1; then pass "smoke-test.sh"; else fail "smoke-test.sh"; tail -5 /tmp/aegis_smoke.log; fi
+if ./scripts/checks/smokeTest.sh >/tmp/aegis_smoke.log 2>&1; then pass "smokeTest.sh"; else fail "smokeTest.sh"; tail -5 /tmp/aegis_smoke.log; fi
 
 hdr "10-node demo (fault injection)"
 if ./scripts/demo.sh >/tmp/aegis_demo.log 2>&1; then pass "demo.sh (10-node, 2-node failure, re-replication)"; else fail "demo.sh"; tail -8 /tmp/aegis_demo.log; fi
 
 hdr "Reliability test (real-process two-failure + malformed frame)"
-./scripts/checks/reliability-test.sh >/tmp/aegis_reliability.log 2>&1
+./scripts/checks/reliabilityTest.sh >/tmp/aegis_reliability.log 2>&1
 rc=$?
-if [ "$rc" -eq 0 ]; then pass "reliability-test.sh"
-elif [ "$rc" -eq 77 ]; then note "reliability-test.sh skipped: $(tail -1 /tmp/aegis_reliability.log)"
-else fail "reliability-test.sh"; tail -8 /tmp/aegis_reliability.log
+if [ "$rc" -eq 0 ]; then pass "reliabilityTest.sh"
+elif [ "$rc" -eq 77 ]; then note "reliabilityTest.sh skipped: $(tail -1 /tmp/aegis_reliability.log)"
+else fail "reliabilityTest.sh"; tail -8 /tmp/aegis_reliability.log
 fi
 
 hdr "Benchmark evidence"
@@ -52,7 +52,7 @@ if [ -s benchmarks/results/raw.csv ] && [ -s benchmarks/results/summary.csv ]; t
   rows=$(($(wc -l < benchmarks/results/raw.csv) - 1))
   pass "benchmark raw+summary present ($rows raw data points)"
 else
-  fail "benchmark results missing (run benchmarks/run-matrix.sh)"
+  fail "benchmark results missing (run benchmarks/runMatrix.sh)"
 fi
 
 hdr "RESULT"

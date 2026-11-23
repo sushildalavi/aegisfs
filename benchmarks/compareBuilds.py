@@ -12,11 +12,11 @@ Raw samples go to a CSV; nothing is edited by hand.
 
 Two views are reported per arm:
   first-N   the first few creates on a fresh cluster. This matches how the original benchmark
-            (benchmarks/run-matrix.sh) measured: new cluster, a handful of repetitions.
+            (benchmarks/runMatrix.sh) measured: new cluster, a handful of repetitions.
   sustained every create in the round, as the store fills up. Background work that scales with
             stored data (scrubbing, reconcile passes) shows up here.
 
-usage: compare-builds.py --a BIN_A --b BIN_B [--size-mib 100] [--rounds 3] [--per-round 10]
+usage: compareBuilds.py --a BIN_A --b BIN_B [--size-mib 100] [--rounds 3] [--per-round 10]
                         [--first-n 5] [--warmup 1] [--out raw.csv]
 """
 import argparse, csv, os, shutil, signal, statistics, subprocess, sys, tempfile, time

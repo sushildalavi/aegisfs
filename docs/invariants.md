@@ -37,7 +37,7 @@ The properties the code is meant to keep, and the tests that check each one. Tes
 ## What is and is not covered
 
 The C++ suite starts real nodes inside one test process, on separate localhost ports, with separate
-data directories. `scripts/checks/reliability-test.sh` repeats the two-failure case with separate OS
+data directories. `scripts/checks/reliabilityTest.sh` repeats the two-failure case with separate OS
 processes and sends malformed frames to a live node.
 
 Not covered by any test today:

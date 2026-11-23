@@ -17,10 +17,10 @@ On macOS: `brew install cmake ninja openssl@3`. On Debian or Ubuntu:
 ## Before opening a pull request
 
 1. `ctest --test-dir build` passes.
-2. `scripts/checks/smoke-test.sh` passes.
+2. `scripts/checks/smokeTest.sh` passes.
 3. Changes to concurrent code: build with `-DAEGISFS_ENABLE_TSAN=ON` and run the affected tests
-   (`scripts/checks/sanitizer-test.sh tsan`).
-4. Changes that touch memory handling: `scripts/checks/sanitizer-test.sh asan`.
+   (`scripts/checks/sanitizerTest.sh tsan`).
+4. Changes that touch memory handling: `scripts/checks/sanitizerTest.sh asan`.
 5. Format with `clang-format` (the config is in `.clang-format`).
 
 `make verify` runs the full set of checks in one go.
@@ -34,7 +34,7 @@ reason is not obvious. One logical change per commit.
 
 - A new invariant gets a test, and a row in `docs/invariants.md`.
 - Performance claims need numbers from `benchmarks/`, taken on the same machine and with the same
-  input before and after. `benchmarks/compare-builds.py` does that comparison for 100 MiB creates.
+  input before and after. `benchmarks/compareBuilds.py` does that comparison for 100 MiB creates.
   Report results that did not help as well as ones that did.
 - Prefer real nodes over mocks when testing distributed behaviour.
 

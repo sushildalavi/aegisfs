@@ -35,17 +35,17 @@ jobs:
 
       - name: Smoke test (process-local 3-node)
         if: matrix.sanitizer == 'none'
-        run: ./scripts/checks/smoke-test.sh
+        run: ./scripts/checks/smokeTest.sh
 
       - name: Python tests (gateway and exporter)
         if: matrix.sanitizer == 'none'
         run: |
-          python3 tests/python/test_extensions.py
-          python3 tests/python/test_operation_history.py
+          python3 tests/python/testExtensions.py
+          python3 tests/python/testOperationHistory.py
 
       - name: Reliability test (two node failures, malformed frames)
         if: matrix.sanitizer == 'none'
-        run: ./scripts/checks/reliability-test.sh
+        run: ./scripts/checks/reliabilityTest.sh
 
   tsan:
     runs-on: ubuntu-latest

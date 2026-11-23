@@ -71,7 +71,7 @@ replicas confirm they have everything. A background pass also checks segments ag
 checksums and repairs bad ones from a healthy peer.
 
 More detail is in [docs/architecture.md](docs/architecture.md), and
-[docs/design-faq.md](docs/design-faq.md) covers the reasoning behind the choices.
+[docs/designFaq.md](docs/designFaq.md) covers the reasoning behind the choices.
 
 ## What it guarantees
 
@@ -115,9 +115,9 @@ and chaos tests that kill, restart, partition and corrupt nodes.
 
 ```bash
 ctest --test-dir build --output-on-failure
-scripts/checks/smoke-test.sh          # three real processes, end to end
-scripts/checks/reliability-test.sh    # two-node failure and malformed frames against live processes
-scripts/checks/sanitizer-test.sh asan # or tsan
+scripts/checks/smokeTest.sh          # three real processes, end to end
+scripts/checks/reliabilityTest.sh    # two-node failure and malformed frames against live processes
+scripts/checks/sanitizerTest.sh asan # or tsan
 make verify                           # build, tests, smoke, demo, reliability in one go
 ```
 

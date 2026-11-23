@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Verify that every designated replica of a file holds byte-identical content (matching SHA-256).
-# Usage: scripts/checks/verify-integrity.sh <entry host:port> <aegis-name>
+# Usage: scripts/checks/verifyIntegrity.sh <entry host:port> <aegis-name>
 # Exits 0 if all replicas agree, nonzero otherwise.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="${AEGISFS_BIN:-$ROOT/build/aegisfs}"
-E="${1:?usage: verify-integrity.sh <entry> <name>}"
-NAME="${2:?usage: verify-integrity.sh <entry> <name>}"
+E="${1:?usage: verifyIntegrity.sh <entry> <name>}"
+NAME="${2:?usage: verifyIntegrity.sh <entry> <name>}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 sha(){ shasum -a 256 "$1" | awk '{print $1}'; }
