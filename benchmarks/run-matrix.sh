@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AegisFS benchmark runner: Measures create/get latency across file sizes under two replication
+# AegisFS benchmark runner. Measures create/get latency across file sizes under two replication
 # fan-out strategies (sequential vs parallel) on a process-local 5-node cluster, and append
 # throughput. Emits raw CSV to benchmarks/results/raw.csv. Plain wall-clock timings.
 set -uo pipefail
