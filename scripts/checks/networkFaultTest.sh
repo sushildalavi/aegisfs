@@ -60,9 +60,15 @@ done
 [ "$detected" -eq 1 ] || fail "node9 was cut off but never marked FAILED (state: $(stateOf node0 node9))"
 ok "isolated node is detected as FAILED"
 
-st=$( (cli node0 create /tmp/in.bin net/during || true) | statusOf)
-[ "$st" = OK ] || [ "$st" = DEGRADED ] || fail "create during the partition returned $st"
-cli node1 get net/base /tmp/during.bin | grep -q 'status=OK' || fail "read during the partition failed"
+t0=$SECONDS
+out=$(cli node0 create /tmp/in.bin net/during || true)
+st=$(printf '%s\n' "$out" | statusOf)
+[ "$st" = OK ] || [ "$st" = DEGRADED ] || fail "create during the partition returned: $out"
+echo "    create during the partition took $((SECONDS - t0))s"
+t0=$SECONDS
+out=$(cli node1 get net/base /tmp/during.bin || true)
+printf '%s\n' "$out" | grep -q 'status=OK' || fail "read during the partition failed: $out"
+echo "    read during the partition took $((SECONDS - t0))s"
 [ "$(sha node1 /tmp/during.bin)" = "$want" ] || fail "read during the partition returned different bytes"
 ok "reads and writes keep working on the majority side"
 
