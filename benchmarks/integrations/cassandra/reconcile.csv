@@ -1,0 +1,16 @@
+run,entries,pass,seconds
+1,3000,first,3.349
+1,3000,no_change,1.245
+1,3000,one_change,0.995
+2,3000,first,4.527
+2,3000,no_change,1.871
+2,3000,one_change,2.013
+3,3000,first,8.771
+3,3000,no_change,1.709
+3,3000,one_change,5.572
+4,3000,first,5.819
+4,3000,no_change,1.759
+4,3000,one_change,1.070
+5,3000,first,2.449
+5,3000,no_change,0.646
+5,3000,one_change,0.654

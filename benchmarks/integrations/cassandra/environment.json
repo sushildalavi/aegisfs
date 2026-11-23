@@ -1,0 +1,19 @@
+{
+  "bucket_count": 16,
+  "cassandra_driver": "3.29.3",
+  "cassandra_image": "cassandra:5.0.5",
+  "cassandra_server": "5.0.5",
+  "cassandra_topology": "single node, replication factor 1, in a Docker container, loopback",
+  "consistency": {
+    "read": "LOCAL_QUORUM",
+    "serial": "LOCAL_SERIAL",
+    "write": "LOCAL_QUORUM"
+  },
+  "cpu": "Apple M3",
+  "cpu_count": 8,
+  "date_utc": "2026-11-23T23:17:26Z",
+  "machine": "arm64",
+  "memory_bytes": 17179869184,
+  "os": "macOS-27.2.1-arm64-arm-64bit",
+  "python": "3.9.6"
+}
