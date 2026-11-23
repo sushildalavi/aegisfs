@@ -77,3 +77,10 @@ TCP connect; absolute ops/sec is a floor, not the server's intrinsic ceiling. Th
 - All nodes share one host's CPU/disk, so replicas contend for the same page cache and disk —
   absolute MB/s is not representative of a multi-machine deployment.
 - Timings use millisecond wall-clock; sub-ms operations (1 KiB) are near the measurement floor.
+- **All the numbers above are single-host.** No multi-machine or network-isolated benchmark has
+  been run — this project was built and measured on one development machine, with no second host
+  or cloud account available to run against. `benchmarks/runner/benchRemote.sh` exists and was
+  sanity-checked against a local node (so the measurement mechanics work), but it has not been
+  run against truly separate machines. Anyone with a second host can run it for real:
+  `benchmarks/runner/benchRemote.sh <entry_host:port>` measures against whatever cluster is
+  already running at that address, without starting or stopping anything itself.
