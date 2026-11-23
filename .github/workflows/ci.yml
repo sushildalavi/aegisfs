@@ -37,6 +37,16 @@ jobs:
         if: matrix.sanitizer == 'none'
         run: ./scripts/checks/smoke-test.sh
 
+      - name: Python tests (gateway and exporter)
+        if: matrix.sanitizer == 'none'
+        run: |
+          python3 tests/python/test_extensions.py
+          python3 tests/python/test_operation_history.py
+
+      - name: Reliability test (two node failures, malformed frames)
+        if: matrix.sanitizer == 'none'
+        run: ./scripts/checks/reliability-test.sh
+
   tsan:
     runs-on: ubuntu-latest
     steps:
