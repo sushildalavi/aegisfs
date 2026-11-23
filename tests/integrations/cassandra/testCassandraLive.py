@@ -10,6 +10,10 @@ Environment (the defaults match tests/integrations/cassandra/runLive.sh):
   AEGIS_CASS_CONTAINER (aegis-cass-cassandra-1)
 The TLS variables AEGISFS_TLS_CA / AEGISFS_TOKEN_FILE must be exported for the aegisfs client.
 Every run creates its own keyspace (aegis_it_<random>) and drops it afterwards.
+
+Secure mode: set AEGIS_CASS_SECURE_DIR to the directory made by deploy/docker/cassandra/secureCreds.sh
+and point the contact point at the Cassandra started with `cassandraUp.sh --secure`. Then the whole
+suite runs over TLS with a password login, and the tests in SecureTest also run.
 """
 import hashlib
 import io
@@ -31,7 +35,7 @@ from aegisfsIntegrations import cli
 from aegisfsIntegrations.aegisfsClient import AegisClient, AegisError
 from aegisfsIntegrations.config import Config
 from aegisfsIntegrations.cassandra import indexer, model as m, queries, schema
-from aegisfsIntegrations.cassandra.errors import DriverMissing, StoreUnavailable
+from aegisfsIntegrations.cassandra.errors import DriverMissing, SecurityError, StoreUnavailable
 from aegisfsIntegrations.cassandra.settings import Settings
 from aegisfsIntegrations.cassandra.spool import Spool
 from aegisfsIntegrations.cassandra.store import IndexStore
@@ -46,13 +50,23 @@ CONTAINER = os.environ.get("AEGIS_CASS_CONTAINER", "aegis-cass-cassandra-1")
 KEYSPACE = "aegis_it_" + uuid.uuid4().hex[:8]
 RUN = uuid.uuid4().hex[:8]  # prefix for file names so runs never collide
 
+SECURE_DIR = os.environ.get("AEGIS_CASS_SECURE_DIR") or None
 STATE = {"cassandra": None, "aegis": None, "reason": ""}
+
+
+def secure_values():
+    """Settings that use TLS and the password login of the secure test container."""
+    if not SECURE_DIR:
+        return {}
+    return dict(tls=True, allow_insecure=False, tls_ca_file=os.path.join(SECURE_DIR, "ca.pem"),
+                username="aegis_index", password=slurp(os.path.join(SECURE_DIR, "index.pass")).decode().strip())
 
 
 def base_settings(**kw):
     values = dict(contact_points=[os.environ.get("AEGISFS_INT_CASSANDRA_CONTACT_POINTS", "127.0.0.1")],
                   port=int(os.environ.get("AEGISFS_INT_CASSANDRA_PORT", "9042")), keyspace=KEYSPACE,
                   tls=False, allow_insecure=True, workers=8, request_timeout=10.0, connect_timeout=3.0)
+    values.update(secure_values())
     values.update(kw)
     return s.settings(**values)
 
@@ -65,7 +79,7 @@ def setUpModule():
     try:
         schema.run_migrate(base_settings())
         STATE["cassandra"] = True
-    except (StoreUnavailable, DriverMissing) as exc:
+    except (StoreUnavailable, DriverMissing, SecurityError) as exc:
         STATE["cassandra"] = False
         STATE["reason"] = str(exc)
     if STATE["cassandra"]:
@@ -125,6 +139,11 @@ class LiveCase(unittest.TestCase):
                "AEGISFS_INT_CASSANDRA_ALLOW_INSECURE": "true",
                "AEGISFS_INT_CASSANDRA_SPOOL_DIR": self.settings.spool_dir,
                "AEGISFS_INT_AEGISFS_BIN": BIN, "AEGISFS_INT_AEGISFS_ENTRY": ENTRY}
+        if SECURE_DIR:
+            env.update({"AEGISFS_INT_CASSANDRA_TLS": "true", "AEGISFS_INT_CASSANDRA_ALLOW_INSECURE": "false",
+                        "AEGISFS_INT_CASSANDRA_TLS_CA_FILE": os.path.join(SECURE_DIR, "ca.pem"),
+                        "AEGISFS_INT_CASSANDRA_USERNAME": "aegis_index",
+                        "AEGISFS_INT_CASSANDRA_PASSWORD_FILE": os.path.join(SECURE_DIR, "index.pass")})
         saved = {k: os.environ.get(k) for k in env}
         os.environ.update(env)
         out, err = io.StringIO(), io.StringIO()
@@ -178,6 +197,191 @@ class MigrationTest(LiveCase):
         code, _, err = self.run_cli("cassandra", "status", "--port", "9")
         self.assertEqual(code, cli.EXIT_UNAVAILABLE)
         self.assertIn("no Cassandra node answered", err)
+
+
+class PlaintextServerTest(LiveCase):
+    """Only meaningful against the plaintext container (default mode)."""
+
+    def setUp(self):
+        if SECURE_DIR:
+            self.skipTest("secure mode: the server requires TLS")
+        super().setUp()
+
+    def test_tls_required_does_not_fall_back_to_plaintext(self):
+        strict = base_settings(tls=True, allow_insecure=False, tls_ca_file=None)
+        with self.assertRaises((SecurityError, StoreUnavailable)):
+            IndexStore.open(strict)
+        # and no session was silently opened in plaintext
+        from aegisfsIntegrations.cassandra import connection
+        with self.assertRaises((SecurityError, StoreUnavailable)):
+            connection.connect(strict)
+
+    def test_plaintext_needs_the_explicit_insecure_switch(self):
+        from aegisfsIntegrations.config import ConfigError
+        for env in ({"AEGISFS_INT_CASSANDRA_TLS": "false"},
+                    {"AEGISFS_INT_CASSANDRA_TLS": "false", "AEGISFS_INT_CASSANDRA_ALLOW_INSECURE": "false"}):
+            with self.assertRaises(ConfigError):
+                Settings.from_config(Config({}, env))
+        ok = Settings.from_config(Config({}, {"AEGISFS_INT_CASSANDRA_TLS": "false",
+                                              "AEGISFS_INT_CASSANDRA_ALLOW_INSECURE": "true",
+                                              "AEGISFS_INT_CASSANDRA_KEYSPACE": KEYSPACE}))
+        IndexStore.open(ok).close()
+        # the command line refuses too, before it connects to anything
+        code, _, err = self.run_cli_env({"AEGISFS_INT_CASSANDRA_TLS": "false",
+                                         "AEGISFS_INT_CASSANDRA_ALLOW_INSECURE": "false"}, "cassandra", "status")
+        self.assertEqual(code, cli.EXIT_USAGE)
+        self.assertIn("allow_insecure", err)
+
+    def run_cli_env(self, env, *argv):
+        saved = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(out), redirect_stderr(err):
+                code = cli.main(["--json", *argv])
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        return code, out.getvalue(), err.getvalue()
+
+
+class SecureTest(LiveCase):
+    """Only in secure mode: TLS with a throwaway CA, and a password login."""
+    needs_aegis = False
+
+    def setUp(self):
+        if not SECURE_DIR:
+            self.skipTest("not in secure mode; set AEGIS_CASS_SECURE_DIR and use cassandraUp.sh --secure")
+        super().setUp()
+        self.password = slurp(os.path.join(SECURE_DIR, "index.pass")).decode().strip()
+
+    def write_password(self, text):
+        path = os.path.join(self.tmp, "pw")
+        with open(path, "w") as handle:
+            handle.write(text)
+        return path
+
+    def test_right_user_password_file_and_ca_connect(self):
+        from aegisfsIntegrations.cassandra import connection
+        env = {"AEGISFS_INT_CASSANDRA_TLS": "true", "AEGISFS_INT_CASSANDRA_TLS_CA_FILE": os.path.join(SECURE_DIR, "ca.pem"),
+               "AEGISFS_INT_CASSANDRA_USERNAME": "aegis_index",
+               "AEGISFS_INT_CASSANDRA_PASSWORD_FILE": os.path.join(SECURE_DIR, "index.pass"),
+               "AEGISFS_INT_CASSANDRA_KEYSPACE": KEYSPACE}
+        st = Settings.from_config(Config({}, env))  # the password comes from the file
+        self.assertEqual(st.password, self.password)
+        cluster, session = connection.connect(st)
+        try:
+            user = session.execute("SELECT role FROM system_auth.roles WHERE role = 'aegis_index'").one()
+            self.assertEqual(user.role, "aegis_index")
+            self.assertTrue(cluster.connection_class is not None)
+        finally:
+            cluster.shutdown()
+
+    def test_wrong_password_is_refused_and_never_echoed(self):
+        wrong = "not-the-password-" + uuid.uuid4().hex
+        st = base_settings(password=wrong)
+        with self.assertRaises(SecurityError) as ctx:
+            IndexStore.open(st)
+        self.assertNotIn(wrong, str(ctx.exception))
+        self.assertNotIn(self.password, str(ctx.exception))
+        self.assertIn("refused the login", str(ctx.exception))
+        # through the command line: exit code, stderr and JSON stay clean as well
+        code, data, err = self.run_cli_with_password(wrong)
+        self.assertEqual(code, cli.EXIT_UNAVAILABLE)
+        combined = err + json.dumps(data)
+        self.assertNotIn(wrong, combined)
+        self.assertIn("refused the login", err)
+        # a wrong password for migrate is refused too, and nothing is spooled
+        self.assertEqual(self.spool.depth(), 0)
+
+    def run_cli_with_password(self, password):
+        path = self.write_password(password)
+        env = {"AEGISFS_INT_CASSANDRA_CONTACT_POINTS": ",".join(self.settings.contact_points),
+               "AEGISFS_INT_CASSANDRA_PORT": str(self.settings.port), "AEGISFS_INT_CASSANDRA_KEYSPACE": KEYSPACE,
+               "AEGISFS_INT_CASSANDRA_TLS": "true", "AEGISFS_INT_CASSANDRA_TLS_CA_FILE": os.path.join(SECURE_DIR, "ca.pem"),
+               "AEGISFS_INT_CASSANDRA_USERNAME": "aegis_index", "AEGISFS_INT_CASSANDRA_PASSWORD_FILE": path,
+               "AEGISFS_INT_CASSANDRA_SPOOL_DIR": self.settings.spool_dir}
+        saved = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(out), redirect_stderr(err):
+                code = cli.main(["--json", "cassandra", "status"])
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+        try:
+            data = json.loads(out.getvalue())
+        except ValueError:
+            data = None
+        return code, data, err.getvalue()
+
+    def test_wrong_or_missing_ca_fails_verification(self):
+        from aegisfsIntegrations.cassandra import connection
+        for label, ca in (("wrong CA", os.path.join(SECURE_DIR, "wrongCa.pem")), ("no CA given", None)):
+            st = base_settings(tls_ca_file=ca)
+            with self.assertRaises(SecurityError, msg=label) as ctx:
+                connection.connect(st)
+            self.assertIn("certificate verification failed", str(ctx.exception), label)
+            self.assertNotIn(self.password, str(ctx.exception), label)
+            with self.assertRaises(SecurityError, msg=label):
+                IndexStore.open(st)
+
+    def test_failed_verification_is_not_treated_as_an_outage(self):
+        """A bad CA must stop the command, not queue work as if Cassandra were merely down."""
+        import argparse
+        from aegisfsIntegrations.cassandra import commands
+        args = argparse.Namespace(o_contact_points=None, o_port=None, o_keyspace=None, o_spool_dir=None)
+        cfg = Config({"cassandra": {"tls_ca_file": os.path.join(SECURE_DIR, "wrongCa.pem"),
+                                    "username": "aegis_index",
+                                    "password_file": os.path.join(SECURE_DIR, "index.pass"),
+                                    "contact_points": self.settings.contact_points, "port": self.settings.port,
+                                    "keyspace": KEYSPACE, "spool_dir": self.settings.spool_dir}}, {})
+        with self.assertRaises(cli.IntegrationUnavailable):
+            commands.try_open_store(commands.settings_for(args, cfg))
+        self.assertEqual(self.spool.depth(), 0)
+
+    def test_unverified_tls_needs_the_insecure_switch_and_then_works(self):
+        from aegisfsIntegrations.config import ConfigError
+        with self.assertRaises(ConfigError):
+            Settings.from_config(Config({}, {"AEGISFS_INT_CASSANDRA_TLS_VERIFY": "false"}))
+        loose = base_settings(tls_verify=False, tls_ca_file=None, allow_insecure=True)
+        IndexStore.open(loose).close()  # encrypted but not verified: only with the explicit switch
+
+    def test_plaintext_is_refused_by_the_server_even_with_the_insecure_switch(self):
+        plain = base_settings(tls=False, allow_insecure=True)
+        with self.assertRaises((SecurityError, StoreUnavailable)):
+            IndexStore.open(plain)
+
+    def test_migrate_index_and_find_over_the_secure_connection(self):
+        if not STATE["aegis"]:
+            self.skipTest("the AegisFS cluster at %s is not healthy" % ENTRY)
+        fresh = "aegis_sec_" + uuid.uuid4().hex[:8]
+        code, data, err = self.run_cli("cassandra", "migrate", "--keyspace", fresh)
+        self.assertEqual(code, 0, (data, err))
+        self.assertEqual(data["schema_version"], 2)
+        aegis = aegis_client()
+        name = self.name("secure.bin")
+        aegis.create(self.file(2048, seed=31), name)
+        code, data, err = self.run_cli("cassandra", "index", "--name", name, "--keyspace", fresh)
+        self.assertEqual((code, data["outcome"]), (0, "created"), (data, err))
+        code, data, err = self.run_cli("cassandra", "find", "--name", name, "--keyspace", fresh, "--confirm")
+        self.assertEqual(code, 0, (data, err))
+        self.assertTrue(data["found"])
+        self.assertTrue(data["confirm"]["agrees"])
+        self.assertFalse(data["index"]["authoritative"])
+        from aegisfsIntegrations.cassandra import connection
+        cluster, session = connection.connect(base_settings(), use_keyspace=False)
+        try:
+            session.execute("DROP KEYSPACE IF EXISTS %s" % fresh)
+        finally:
+            cluster.shutdown()
 
 
 class StoreTest(LiveCase):

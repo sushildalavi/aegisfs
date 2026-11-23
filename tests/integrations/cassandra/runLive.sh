@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Run the Cassandra integration tests against real services.
 #
-#   tests/integrations/cassandra/runLive.sh            # unit tests, then live tests
-#   KEEP_UP=1 tests/integrations/cassandra/runLive.sh  # leave Cassandra and AegisFS running afterwards
+#   tests/integrations/cassandra/runLive.sh            # default phase, then secure phase
+#   tests/integrations/cassandra/runLive.sh default    # plaintext development container only
+#   tests/integrations/cassandra/runLive.sh secure     # TLS + password container only
+#   KEEP_UP=1 tests/integrations/cassandra/runLive.sh  # leave AegisFS and the last Cassandra running
 #
-# It starts a 3-node process-local AegisFS cluster (ports 9300-9302, run dir /tmp/aegis-cass) and the
+# It starts a 3-node process-local AegisFS cluster (ports 9300-9302, run dir /tmp/aegis-cass) and a
 # Cassandra container (Compose project aegis-cass, 127.0.0.1:9042), runs the tests with
 # AEGISFS_INT_CASSANDRA_LIVE=1 so a missing service is a failure, and stops only what it started.
+# The secure phase uses the container from `cassandraUp.sh --secure` (TLS required, password login,
+# throwaway credentials in deploy/docker/cassandra/.dev) and runs the same live tests over TLS with
+# a login, plus the tests that check wrong passwords, wrong CAs and the insecure switch.
+# Both phases use host port 9042, so they run one after the other.
 # Needs: Docker, a built build/aegisfs, and python3 (a venv is created in extensions/integrations/.venv-cass).
 set -euo pipefail
 
@@ -23,6 +29,9 @@ if [ ! -x "$VENV/bin/python" ]; then
   python3 -m venv "$VENV"
   "$VENV/bin/pip" install -q -r "$ROOT/extensions/integrations/requirements.txt"
 fi
+
+MODE="${1:-all}"
+case "$MODE" in all|default|secure) ;; *) echo "usage: $0 [all|default|secure]" >&2; exit 2 ;; esac
 
 started_cluster=0
 started_cassandra=0
@@ -50,14 +59,35 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-if [ "$(docker inspect -f '{{.State.Running}}' "$AEGIS_CASS_CONTAINER" 2>/dev/null || echo false)" != true ]; then
-  "$ROOT/scripts/integrations/cassandraUp.sh" --no-init
-  started_cassandra=1
-fi
+running() { [ "$(docker inspect -f '{{.State.Running}}' "${PROJECT}-$1-1" 2>/dev/null || echo false)" = true ]; }
 
-cd "$ROOT/tests/integrations/cassandra"
-echo "== unit tests =="
-"$VENV/bin/python" -W error::ResourceWarning -m unittest testCassandraModel testCassandraStore \
-  testCassandraSpool testCassandraSchema testCassandraIndexer
-echo "== live tests =="
-AEGISFS_INT_CASSANDRA_LIVE=1 "$VENV/bin/python" -W error::ResourceWarning -m unittest -v testCassandraLive
+phase() {  # phase default|secure
+  local service=cassandra
+  [ "$1" = secure ] && service=cassandra-secure
+  export AEGIS_CASS_CONTAINER="${PROJECT}-${service}-1"
+  if [ "$1" = secure ]; then
+    export AEGIS_CASS_SECURE_DIR
+    AEGIS_CASS_SECURE_DIR="$("$ROOT/deploy/docker/cassandra/secureCreds.sh")"
+  else
+    unset AEGIS_CASS_SECURE_DIR
+  fi
+  if ! running "$service"; then
+    "$ROOT/scripts/integrations/cassandraDown.sh" >/dev/null 2>&1 || true  # frees host port 9042
+    if [ "$1" = secure ]; then
+      "$ROOT/scripts/integrations/cassandraUp.sh" --secure
+    else
+      "$ROOT/scripts/integrations/cassandraUp.sh" --no-init
+    fi
+    started_cassandra=1
+  fi
+  echo "== $1: unit tests =="
+  (cd "$ROOT/tests/integrations/cassandra" && "$VENV/bin/python" -W error::ResourceWarning -m unittest \
+    testCassandraModel testCassandraStore testCassandraSpool testCassandraSchema testCassandraIndexer)
+  echo "== $1: live tests =="
+  (cd "$ROOT/tests/integrations/cassandra" && AEGISFS_INT_CASSANDRA_LIVE=1 "$VENV/bin/python" \
+    -W error::ResourceWarning -m unittest -v testCassandraLive)
+}
+
+[ "$MODE" != secure ] && phase default
+[ "$MODE" != default ] && phase secure
+exit 0

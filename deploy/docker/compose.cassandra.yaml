@@ -53,6 +53,49 @@ services:
       retries: 30
       start_period: 60s
 
+  # Secure variant for testing the client's TLS and login handling: PasswordAuthenticator, and
+  # client TLS that is required (plaintext connections are refused). The certificates and
+  # passwords are throwaway and generated into deploy/docker/cassandra/.dev by secureCreds.sh,
+  # which Git ignores. Uses the same host port as `cassandra`, so run one or the other
+  # (AEGIS_CASS_SECURE_PORT changes it). scripts/integrations/cassandraUp.sh --secure starts it
+  # and runs secureSetup.py. Authorization stays off (any logged-in user may do anything).
+  cassandra-secure:
+    profiles: ["cassandra"]
+    image: cassandra:5.0.5
+    restart: unless-stopped
+    networks: [aegis]
+    ports: ["127.0.0.1:${AEGIS_CASS_SECURE_PORT:-9042}:9042"]
+    mem_limit: 1536m
+    environment:
+      CLUSTER_NAME: aegisfs-index-secure
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    volumes:
+      - cassandra-secure-data:/var/lib/cassandra
+      - ${AEGIS_CASS_SECURE_DIR:-./cassandra/.dev}:/certs:ro
+    entrypoint:
+      - bash
+      - -c
+      - |
+        python3 - <<'PY'
+        import re
+        path = "/etc/cassandra/cassandra.yaml"
+        text = open(path).read()
+        text = re.sub(r"(?m)^authenticator: .*$", "authenticator: PasswordAuthenticator", text)
+        password = open("/certs/keystore.pass").read().strip()
+        block = ("client_encryption_options:\n  enabled: true\n  optional: false\n"
+                 "  keystore: /certs/server.p12\n  keystore_password: %s\n  store_type: PKCS12\n" % password)
+        text = re.sub(r"(?ms)^client_encryption_options:\n(?:[ \t]+.*\n|#.*\n|\n)*?(?=^\S)", block, text, count=1)
+        open(path, "w").write(text)
+        PY
+        exec docker-entrypoint.sh cassandra -f
+    healthcheck:
+      test: ["CMD-SHELL", "nodetool statusbinary | grep -q running"]
+      interval: 10s
+      timeout: 20s
+      retries: 30
+      start_period: 60s
+
   cassandra-init:
     <<: *integrations
     profiles: ["cassandra"]
@@ -77,4 +120,5 @@ services:
 
 volumes:
   cassandra-data: {}
+  cassandra-secure-data: {}
   indexer-spool: {}

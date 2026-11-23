@@ -134,6 +134,33 @@ class MigrateTest(unittest.TestCase):
         self.assertIn("'dc1': 3, 'dc2': 2", schema.keyspace_cql(nts))
 
 
+class SecurityErrorTextTest(unittest.TestCase):
+    """The driver reports failed handshakes as plain errors whose text has the OpenSSL reason."""
+
+    def exc(self, error):
+        from cassandra.cluster import NoHostAvailable
+        return NoHostAvailable("Unable to connect to any servers", {"127.0.0.1:9042": error})
+
+    def test_certificate_failure_as_the_driver_words_it(self):
+        err = PermissionError(1, "Tried connecting to [('127.0.0.1', 9042)]. Last error: [SSL: "
+                                 "CERTIFICATE_VERIFY_FAILED] certificate verify failed: self signed (_ssl.c:1129)")
+        text = connection._security_problem(self.exc(err), s.settings())
+        self.assertIn("certificate verification failed", text)
+        self.assertNotIn("127.0.0.1", text)
+
+    def test_login_failure_never_contains_the_password(self):
+        from cassandra import AuthenticationFailed
+        st = s.settings(username="u", password="hunter2-secret")
+        text = connection._security_problem(self.exc(AuthenticationFailed("Bad credentials hunter2-secret")), st)
+        self.assertIn("refused the login", text)
+        self.assertNotIn("hunter2-secret", text)
+
+    def test_other_failures_and_odd_shapes_are_not_security_problems(self):
+        from cassandra.cluster import NoHostAvailable
+        self.assertIsNone(connection._security_problem(self.exc(ConnectionRefusedError("refused")), s.settings()))
+        self.assertIsNone(connection._security_problem(NoHostAvailable("x", ["127.0.0.1"]), s.settings()))
+
+
 class SettingsTest(unittest.TestCase):
     def cfg(self, data=None, env=None):
         return Config(data or {}, env or {})

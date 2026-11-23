@@ -250,6 +250,7 @@ client reads).
 | Cassandra fails part way through a reconcile | the remaining work is queued (`spooled` in the report) |
 | AegisFS unreachable during a reconcile | the command fails before writing anything; no entry is marked stale |
 | some AegisFS nodes unreachable | missing files become `incomplete`, not `stale` |
+| wrong password, or a TLS certificate that does not verify | exit 3 with a message that names the user or the certificate problem and never the password. Nothing is queued: a bad setting is not an outage. The client never falls back to plaintext. |
 | invalid observation | rejected (never retried), counted as `invalid` |
 | keyspace missing or schema older than the code | clear error asking for `cassandra migrate` |
 | `cassandra-driver` not installed | exit 3 with the install command |
@@ -288,12 +289,14 @@ docker compose -p aegis-cass -f deploy/docker/compose.yaml -f deploy/docker/comp
 
 The indexer service reaches AegisFS at `node0:9100` with the TLS CA and token from
 `${AEGISFS_CREDS_DIR:-.dev}`; it needs the core AegisFS stack running to do anything useful, and
-keeps retrying until it is. The dev container has no TLS and no login; see Limitations.
+keeps retrying until it is. The plain `cassandra` service has no TLS and no login; see Limitations. The `cassandra-secure` service (Tests, above) is for testing TLS and login.
 
 ## Tests
 
 ```
-tests/integrations/cassandra/runLive.sh      # starts AegisFS (3 nodes) and Cassandra, runs everything, stops them
+tests/integrations/cassandra/runLive.sh            # default phase, then secure phase; stops what it started
+tests/integrations/cassandra/runLive.sh default    # plaintext development container only
+tests/integrations/cassandra/runLive.sh secure     # TLS + password container only
 ```
 
 Unit tests (`testCassandraModel/Store/Spool/Schema/Indexer.py`) use an in-memory back end and a fake
@@ -305,6 +308,31 @@ if `AEGISFS_INT_CASSANDRA_LIVE=1`. It covers migrations, round trips, repeated a
 files removed from every node's disk, `--confirm` disagreement, stopping and restarting the Cassandra
 container with work queued, AegisFS `create`/`get` while Cassandra is stopped, and a 3,000-entry
 inventory.
+
+### Secure variant (TLS and password login)
+
+`scripts/integrations/cassandraUp.sh --secure` starts the `cassandra-secure` Compose service: the same
+Cassandra 5.0.5 image with `PasswordAuthenticator` and client TLS that is required (plaintext
+connections are refused; authorization stays off). `deploy/docker/cassandra/secureCreds.sh` generates
+a throwaway CA, a server certificate for `127.0.0.1`/`localhost`, an unrelated second CA, and random
+passwords into `deploy/docker/cassandra/.dev/`, which Git ignores. `secureSetup.py` then creates the
+login `aegis_index` and replaces the default superuser's well-known password with a random one. It
+publishes on the same host port as the plain container, so run one at a time.
+
+In secure mode the whole live suite runs over TLS with that login, and `SecureTest` additionally checks:
+
+- the right user, `password_file` and CA connect;
+- a wrong password is refused, with a message that does not contain the password (checked in the
+  library error, the CLI's stderr and its JSON output);
+- a wrong CA, and no CA at all (system trust store), fail certificate verification; the error is a
+  security error, nothing is queued, and the CLI exits 3;
+- `tls_verify=false` is rejected without `allow_insecure`, and works (encrypted, unverified) with it;
+- plaintext (`tls=false`, `allow_insecure=true`) is refused by the TLS-only server;
+- `migrate`, `index --name` and `find --name --confirm` work through the CLI on the secure connection.
+
+In default mode, against the plaintext container, `PlaintextServerTest` checks that TLS configured as
+required does not fall back to plaintext, and that `tls=false` is a configuration error unless
+`allow_insecure=true`, both in `Settings` and on the command line.
 
 `tests/integrations/cassandra/benchIndex.py` records latency, throughput and reconcile time as raw
 CSV in `benchmarks/integrations/cassandra/`, with the hardware and versions in `environment.json`.
@@ -332,12 +360,16 @@ prefix listing 17.6 ms (p95 50 ms, 200 samples), concurrent lookups reached abou
   paging beyond `--limit`. `find --striped` and `stale` return at most `--limit` entries (per attribute for `stale`).
 - Attribute tables are updated after the main row (see above) and a reconcile does not repair
   them; replaying the queue does.
-- The development container is one node with replication factor 1, no TLS and no authentication.
-  The client supports TLS (CA file, verification on by default) and username/password-file login and
-  these settings are unit tested, but they have not been run against a TLS or password-protected
-  Cassandra here.
-- `cassandra-driver` 3.29 on Python 3.9 was what the tests ran with. The integrations image uses the
-  Python of Ubuntu 24.04.
+- The development container (`cassandra`) is one node with replication factor 1, no TLS and no
+  authentication. TLS and password login were tested live against `cassandra-secure` (see Tests):
+  one node, a throwaway CA, server-side TLS only. Not tested: client certificates (mutual TLS),
+  `NetworkTopologyStrategy` or multiple datacenters, authorization (roles with limited permissions),
+  and a Cassandra that was not started from this Compose file. The CQL login `aegis_index` used in
+  the test is not restricted, because authorization is off there.
+- The test credentials are generated locally and are not for anything real.
+- The tests ran with `cassandra-driver` 3.29.3 on Python 3.9. The integrations image installs the
+  newest 3.x driver (3.30.1 when built) on Ubuntu 24.04's Python 3.12; there `migrate` and the
+  indexer's `status` ran against the plain container, but the test suite was not run in the image.
 - One indexer per spool directory is assumed. Two drains over one directory are safe but may
   replay events twice.
 - Nothing in the gateway calls `observe` yet.
