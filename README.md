@@ -1,6 +1,7 @@
 # AegisFS
 
 [![CI](https://github.com/sushildalavi/aegisfs/actions/workflows/ci.yml/badge.svg)](https://github.com/sushildalavi/aegisfs/actions/workflows/ci.yml)
+[![Integrations](https://github.com/sushildalavi/aegisfs/actions/workflows/integrations.yml/badge.svg)](https://github.com/sushildalavi/aegisfs/actions/workflows/integrations.yml)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -65,6 +66,42 @@ replicas to one identical state and returns `OK` only if they are byte-identical
 data to the new members. A node that stops being a replica only deletes its copy after the new
 replicas confirm they have everything. A background pass also checks segments against their
 checksums and repairs bad ones from a healthy peer.
+
+## Optional integrations
+
+AegisFS stores, replicates and repairs data entirely by itself. Two optional tools connect it to
+systems people already run. Neither is needed for the cluster to work, and neither sits on the read
+or write path: if either one is down, files are still written and read as normal.
+
+**A Cassandra index of file metadata.** Cassandra keeps a searchable record of what AegisFS has
+reported about each file: its name, version, size when known, where the replicas are, and a SHA-256
+when the file has actually been read and hashed. You can look a file up by name, list a folder, find
+striped files, or ask which entries look stale. The index is a record of what was observed and when, not
+the authority. A lookup can be checked against the live cluster, and an index hit never overrides an
+AegisFS error. If Cassandra is unreachable, index requests wait in a local queue and are replayed later.
+
+```
+aegisfs-integrations cassandra index --reconcile
+aegisfs-integrations cassandra find --name reports/q1.csv
+aegisfs-integrations cassandra list --prefix reports/
+```
+
+**HDFS import and export.** Files can be copied between AegisFS and an existing HDFS cluster over
+WebHDFS. An export uploads to a temporary name, reads the bytes back from HDFS and compares SHA-256
+before moving the file into place. An import does the mirror image through the normal AegisFS client, so
+replication and striping apply as for any other write. Nothing is overwritten unless asked, and neither
+side's original is ever deleted. Plain `http` and unverified HTTPS are refused unless a development
+switch is set, and Kerberos is not supported.
+
+```
+aegisfs-integrations hdfs export reports/q1.csv /data/q1.csv
+aegisfs-integrations hdfs import /data/q1.csv reports/q1.csv
+aegisfs-integrations hdfs list /data
+```
+
+Both run as optional Docker Compose profiles, `cassandra` and `hdfs`, next to the ten-node cluster.
+They were tested against real Cassandra 5.0 and Apache Hadoop 3.4, on one machine; they have not been run
+across separate hosts.
 
 ## Performance
 
