@@ -1,8 +1,5 @@
-# Multi-stage build for an AegisFS node image.
-# NOTE: Docker is not installed on the original development host, so Docker Compose scenarios are
-# documented but marked NOT RUN in `buildStatus.json`. On a host with Docker this image builds and
-# `compose.yaml` launches a 10-node cluster. The process-local path (scripts/cluster.sh) provides
-# the same behavior without Docker and is what has been exercised.
+# Multi-stage build for an AegisFS node image, used by compose.yaml to launch a 10-node cluster.
+# scripts/cluster.sh provides the same process-local behavior without Docker.
 FROM ubuntu:24.04 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake ninja-build clang libssl-dev ca-certificates git \

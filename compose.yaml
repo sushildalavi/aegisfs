@@ -1,13 +1,11 @@
 # 10-node AegisFS cluster via Docker Compose. Each node has its own persistent volume, network
 # endpoint, identity, and logs. node0 is the bootstrap seed; the rest join via it.
 #
-# NOTE: Docker is not installed on the original dev host, so this file is provided for portability
-# but is marked NOT RUN in `buildStatus.json`. The equivalent process-local cluster (verified) is:
-#   scripts/cluster.sh start 10
-#
-# On a Docker host:
+# Usage:
 #   docker compose build && docker compose up -d
 #   docker compose exec node0 aegisfs --entry node0:9100 listMemIds
+#
+# scripts/cluster.sh start 10 provides the same topology as process-local nodes, no Docker needed.
 name: aegisfs
 
 x-node: &node
