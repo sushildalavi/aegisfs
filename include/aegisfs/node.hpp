@@ -40,6 +40,9 @@ struct NodeConfig {
   // cluster tell "that one peer is actually down" apart from "I personally can't reach it":
   // the second case is a point-to-point network partition, not a failure.
   int indirectProbeCount{3};
+  // When false the node never probes its peers, so it never marks one suspect or failed. Tests use
+  // this to hold a membership view still while they inject a fault; leave it on otherwise.
+  bool failureDetectionEnabled{true};
 };
 
 // A single AegisFS process: storage replica + request coordinator + membership participant.

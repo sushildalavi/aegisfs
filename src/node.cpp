@@ -981,6 +981,7 @@ bool Node::probeOnce(const std::string& address, int timeoutMs) {
 }
 
 void Node::failureDetectorLoop() {
+  if (!config.failureDetectionEnabled) return;
   while (running) {
     auto peers = membershipTable->alive();
     for (auto& m : peers) {

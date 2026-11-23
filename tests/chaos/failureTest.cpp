@@ -214,7 +214,10 @@ TEST(Chaos, JoinKeepsFilesAvailable) {
 // to write the base on the secondaries instead: otherwise the primary comes back up still empty,
 // and a second create with different content could commit a competing base there.
 TEST(Chaos, PrimaryFailureDuringCreateDoesNotOrphanBase) {
-  Cluster cl(5);
+  // Failure detection is off so the blocked primary stays in everyone's ring. Left on, whether the
+  // detector got to it before the create ran depended on how fast the machine was (it failed about
+  // 40% of runs under AddressSanitizer), and the test passed or failed for the wrong reason.
+  Cluster cl(5, 3, 0, [](NodeConfig& cfg) { cfg.failureDetectionEnabled = false; });
   ASSERT_TRUE(cl.awaitConvergence(5));
 
   Client probe = cl.client(0, "probe");

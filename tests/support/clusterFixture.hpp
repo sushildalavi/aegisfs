@@ -1,6 +1,7 @@
 #pragma once
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
@@ -18,7 +19,9 @@ namespace fs = std::filesystem;
 // (SIGKILL) + restart durability, use scripts/chaosTest.sh (separate OS processes).
 class Cluster {
  public:
-  explicit Cluster(int n, int rf = 3, int basePort = 0) {
+  // `tune`, if given, can adjust each node's config before it starts.
+  explicit Cluster(int n, int rf = 3, int basePort = 0,
+                   const std::function<void(NodeConfig&)>& tune = nullptr) {
     rootPath = (fs::temp_directory_path() /
              ("aegisfs_cl_" + std::to_string(::getpid()) + "_" +
               std::to_string(reinterpret_cast<uintptr_t>(this))))
@@ -39,6 +42,7 @@ class Cluster {
       cfg.reapMs = 5000;
       cfg.reconcileMs = 150; cfg.scrubIntervalMs = 0;
       if (!seed.empty()) cfg.seeds = {seed};
+      if (tune) tune(cfg);
       auto node = std::make_unique<Node>(std::move(cfg));
       if (!isOk(node->start())) throw std::runtime_error("node start failed");
       if (seed.empty()) seed = node->address();
