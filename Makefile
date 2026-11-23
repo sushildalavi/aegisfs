@@ -18,8 +18,8 @@ test: build test-python
 	ctest --test-dir $(BUILD) --output-on-failure
 
 test-python:
-	python3 tests/python/extensionTest.py
-	python3 tests/python/operationHistoryTest.py
+	python3 tests/python/test_extensions.py
+	python3 tests/python/test_operation_history.py
 
 smoke: build
 	scripts/checks/smoke-test.sh

@@ -26,8 +26,8 @@ else
 fi
 
 hdr "Python extension and operation-history tests"
-if python3 tests/python/extensionTest.py >/tmp/aegis_pytest.log 2>&1 \
-   && python3 tests/python/operationHistoryTest.py >>/tmp/aegis_pytest.log 2>&1; then
+if python3 tests/python/test_extensions.py >/tmp/aegis_pytest.log 2>&1 \
+   && python3 tests/python/test_operation_history.py >>/tmp/aegis_pytest.log 2>&1; then
   pass "python tests passed"
 else
   fail "python tests failed (see /tmp/aegis_pytest.log)"; tail -8 /tmp/aegis_pytest.log

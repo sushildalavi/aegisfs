@@ -22,8 +22,8 @@ def load_module(name, relative_path):
     return module
 
 
-gateway = load_module("aegisfsGateway_test", "extensions/gateway/aegisfsGateway.py")
-exporter = load_module("aegisfs_exporter_test", "extensions/metrics/prometheusExporter.py")
+gateway = load_module("gateway_test", "extensions/gateway/gateway.py")
+exporter = load_module("aegisfs_exporter_test", "extensions/metrics/exporter.py")
 
 
 class FakeHeaders:
