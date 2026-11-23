@@ -2,7 +2,7 @@
 # Minimal single-entry smoke test: build must exist. Starts a 3-node cluster, exercises the
 # full CRUD-ish path, and asserts byte integrity. Exits nonzero on any failed assertion.
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/build/aegisfs"
 E="127.0.0.1:9100"
 TMP="$(mktemp -d)"

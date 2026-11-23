@@ -22,25 +22,25 @@ test-python:
 	python3 tests/python/operationHistoryTest.py
 
 smoke: build
-	scripts/smokeTest.sh
+	scripts/checks/smoke-test.sh
 
 demo: build
 	scripts/demo.sh
 
 bench: build
-	benchmarks/runner/bench.sh
+	benchmarks/run-matrix.sh
 
 asan:
-	scripts/sanitizerTest.sh asan
+	scripts/checks/sanitizer-test.sh asan
 
 tsan:
-	scripts/sanitizerTest.sh tsan
+	scripts/checks/sanitizer-test.sh tsan
 
 reliability: build
-	scripts/reliabilityTest.sh
+	scripts/checks/reliability-test.sh
 
 verify: build
-	scripts/verifyDefinitionOfDone.sh
+	scripts/checks/verify-all.sh
 
 clean:
 	rm -rf $(BUILD) build-asan build-tsan run run-bench

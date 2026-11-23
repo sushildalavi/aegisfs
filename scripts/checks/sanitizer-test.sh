@@ -3,7 +3,7 @@
 # finding and reports a clear skip when the compiler/runtime does not support the mode.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MODE="${1:-asan}"
 case "$MODE" in
   asan)

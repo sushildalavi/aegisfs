@@ -3,7 +3,7 @@
 # Exit 77 means the host cannot bind localhost sockets and the suite was skipped.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="${AEGISFS_BIN:-$ROOT/build/aegisfs}"
 BASE="${AEGISFS_BASE_PORT:-9500}"
 RUN="$ROOT/run"

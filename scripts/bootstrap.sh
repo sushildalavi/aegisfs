@@ -32,4 +32,4 @@ esac
 echo "== Configure + build =="
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
-echo "== Done. Try: scripts/smokeTest.sh =="
+echo "== Done. Try: scripts/checks/smoke-test.sh =="

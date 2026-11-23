@@ -13,7 +13,7 @@ On macOS, install deps with Homebrew: `brew install cmake ninja openssl@3`.
 
 ## Before you open a PR
 1. `ctest --test-dir build` is green (unit + integration + concurrency + chaos).
-2. `scripts/smokeTest.sh` passes.
+2. `scripts/checks/smoke-test.sh` passes.
 3. For concurrency-touching changes, build with `-DAEGISFS_ENABLE_TSAN=ON` and run the affected
    tests under ThreadSanitizer.
 4. For memory-touching changes, build with `-DAEGISFS_ENABLE_ASAN=ON`.
