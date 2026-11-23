@@ -73,16 +73,15 @@ every write checked on all three replicas before it is acknowledged.
 
 | 100 MiB `create` | before | after |
 |---|---|---|
-| median | 312 ms | 199 ms (-36%) |
-| p95 | 463 ms | 260 ms (-44%) |
-| throughput at the median | 332 MB/s | 528 MB/s |
+| median | 496 ms | 254 ms (-49%) |
+| p95 | 1254 ms | 294 ms (-77%) |
+| throughput at the median | 211 MB/s | 412 MB/s |
 
-Both builds ran on fresh clusters, alternated over four rounds with 40 samples each. Two changes
-account for the gain: replicas now rename the spooled upload into place instead of copying it, and the
-background integrity check no longer re-hashes every stored segment every second. A 40% cut in the
-median was the goal and I did not reach it. What is left is the chain of full passes over the data,
-and removing it would mean forwarding data to replicas while it is still arriving. This is one
-machine and loopback only, so treat the numbers as relative.
+Both builds ran on fresh clusters, alternated over four rounds with 40 samples each. Four changes account for the gain: replicas rename the spooled upload into place
+instead of copying it, the coordinator hard-links its own copy instead of re-reading and re-hashing it,
+receiving, writing and hashing an upload now overlap, and the background integrity check no longer
+re-hashes every stored segment every second. This is one machine and loopback only, so treat the
+numbers as relative.
 
 ## License
 

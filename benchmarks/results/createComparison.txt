@@ -1,9 +1,9 @@
 100 MiB create, RF=3, 5 nodes, 4 rounds x 10 creates/arm/round (+1 warm-up each), fresh cluster per round
 first-5:
-  A          n=20  median=  312.0  mean=  314.5  sd=  33.7  p95=  366.2  p99=  391.0  min=  244.9  max=  397.1  MB/s(median)=336
-  B          n=20  median=  198.7  mean=  208.4  sd=  28.9  p95=  246.0  p99=  301.3  min=  187.2  max=  315.1  MB/s(median)=528
-  median change A->B: -36.3%
+  A          n=20  median=  461.9  mean=  471.1  sd=  40.1  p95=  524.4  p99=  551.2  min=  393.8  max=  557.9  MB/s(median)=227
+  B          n=20  median=  227.1  mean=  243.6  sd=  43.2  p95=  297.6  p99=  371.6  min=  197.7  max=  390.1  MB/s(median)=462
+  median change A->B: -50.8%
 sustained:
-  A          n=40  median=  315.7  mean=  337.1  sd=  82.8  p95=  462.8  p99=  647.9  min=  244.9  max=  748.9  MB/s(median)=332
-  B          n=40  median=  198.7  mean=  207.9  sd=  25.3  p95=  260.2  p99=  296.7  min=  187.2  max=  315.1  MB/s(median)=528
-  median change A->B: -37.1%
+  A          n=40  median=  496.4  mean=  609.4  sd=  287.0  p95= 1253.7  p99= 1584.9  min=  393.8  max= 1712.7  MB/s(median)=211
+  B          n=40  median=  254.3  mean=  250.6  sd=   36.5  p95=  294.4  p99=  364.7  min=  197.7  max=  390.1  MB/s(median)=412
+  median change A->B: -48.8%

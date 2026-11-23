@@ -22,63 +22,78 @@ between builds are not affected, because both builds use the same call.
 
 ## Creating a 100 MiB file: before and after
 
-The question was whether recent changes made replicated creates faster. `benchmarks/compareBuilds.py`
-runs two binaries on separate fresh 5-node clusters, one at a time, alternating which goes first over
-four rounds. Each round does one warm-up create and then ten timed ones.
+The question was whether changes to the write path made replicated creates faster.
+`benchmarks/compareBuilds.py` runs two binaries on separate fresh 5-node clusters, one at a time,
+alternating which goes first over four rounds. Each round does one warm-up create and then ten timed
+ones.
 
-- **Before:** commit `399efb5`, built in a separate worktree.
-- **After:** commit `3e4a697` (the changes in this document).
+- **Before:** the commit just before "Rename replica uploads into place instead of copying them
+  twice" (`5f95de8`), built in a separate worktree.
+- **After:** the build with all four changes listed below.
 
 | 100 MiB create | Before | After | Change |
 |---|---|---|---|
-| Median, first 5 creates on a fresh cluster (n=20) | 312.0 ms | 198.7 ms | **−36.3%** |
-| Median, all 10 creates per cluster (n=40) | 315.7 ms | 198.7 ms | **−37.1%** |
-| Mean (n=40) | 337.1 ms | 207.9 ms | −38.3% |
-| p95 (n=40) | 462.8 ms | 260.2 ms | −43.8% |
-| p99 (n=40) | 647.9 ms | 296.7 ms | −54.2% |
-| Std deviation (n=40) | 82.8 ms | 25.3 ms | −69.4% |
-| Throughput at the median | 332 MB/s | 528 MB/s | +59% |
+| Median, first 5 creates on a fresh cluster (n=20) | 461.9 ms | 227.1 ms | **−50.8%** |
+| Median, all 10 creates per cluster (n=40) | 496.4 ms | 254.3 ms | **−48.8%** |
+| Mean (n=40) | 609.4 ms | 250.6 ms | −58.9% |
+| p95 (n=40) | 1253.7 ms | 294.4 ms | −76.5% |
+| p99 (n=40) | 1584.9 ms | 364.7 ms | −77.0% |
+| Std deviation (n=40) | 287.0 ms | 36.5 ms | −87.3% |
+| Throughput at the median | 211 MB/s | 412 MB/s | +95% |
 
-I was aiming for more than a 40% cut. The median fell by 36–37%, so that target was **not met**.
-The mean, p95 and p99 improved by more than 40%, but I would not call that hitting the goal,
-because the median is the number I would quote.
+The goal was a median cut of more than 40%, and both views clear it. The machine was slower and
+busier on the day of this run than on the day of the first one (the "before" build took 312 ms to
+create then and 462 ms here), so compare the percentages, not the milliseconds. The "before" build
+suffers more than the "after" build when the machine is loaded, which inflates the percentage a
+little. The cleaner way to see what the last two changes are worth is to compare against the build
+that already had the first two. Over six interleaved rounds on this machine that measured:
 
-Two earlier numbers are worth explaining, because they pointed me in the wrong direction at first.
+| 100 MiB create | Previous build | Current | Change |
+|---|---|---|---|
+| Median, first 5 creates (n=30) | 309.2 ms | 240.6 ms | −22.2% |
+| Median, all creates (n=60) | 315.0 ms | 263.1 ms | −16.5% |
 
-The old version of this page recorded 540.8 ms for a parallel 100 MiB create. I could not reproduce
-that: the same commit now measures about 310 ms in this harness. The earlier run was most likely on a
-busier machine, which is why the comparison above builds both sides in the same session and
-interleaves them.
-
-A first version of the comparison started both clusters at once and alternated samples between them.
-That produced medians of about 2–4 s for both builds. The cause was the baseline's own background work:
-every node was re-hashing every stored segment once per second, so an idle cluster full of 100 MiB
-files kept the CPU busy and slowed whichever cluster was being timed. That is the scrub problem
-described below, and it is also why the harness now runs one cluster at a time.
+On the earlier, quieter day the first two changes alone measured 312.0 ms to 198.7 ms (−36%, n=20)
+and −37% over all creates. Those figures are in the git history of this page, and I did not reach
+40% with them.
 
 ### What changed
 
 1. **Replicas rename the spooled upload into place** instead of copying it through a second temp
-   file. The hash had already been checked, so the second copy only added disk writes. Commit
-   `1e194c9`.
+   file. The hash had already been checked, so the second copy only added disk writes.
 2. **The background integrity check no longer re-hashes everything every second.** Each cycle now
    stats the segment files, and a full re-hash runs once per file every five minutes
    (`--scrub-interval-ms`). With a few 100 MiB files stored, the old behaviour was hundreds of MB of
    SHA-256 per node per second and pushed create latency from about 250 ms to several seconds in a
-   back-to-back run. Commit `f511f78`.
+   back-to-back run.
+3. **The coordinator's own copy is hard-linked into place.** When the coordinator is also one of
+   the three replicas, it used to re-read the whole upload it had just hashed, copy it through a new
+   temp file, hash it again and fsync that. The spooled file has to stay where it is because the
+   other replicas stream from it, so it cannot simply be renamed. It is now hard-linked, which skips
+   the second copy. The bytes were already fsynced and checked against the hash computed in the same
+   request. Merge and anti-entropy still re-verify what they fetch from peers.
+4. **Receiving, writing and hashing an upload overlap.** `spoolPayload` used to do those three
+   things one chunk at a time on one thread. A second thread now hashes each chunk while the first
+   receives the next and writes the current one, through a small ring of buffers. Every byte is
+   still hashed in order and the file is still fsynced before the upload is acknowledged. This
+   applies on the coordinator and on every replica.
 
 Two other commits in the same range changed correctness rather than speed: a create or append on a
 ring with fewer than three members now returns `DEGRADED` instead of `OK`, and a failed `fsync` on
 an upload is now an error. Neither affects the timing above in any measurable way.
 
+A first version of the comparison started both clusters at once and alternated samples between them.
+That produced medians of about 2 to 4 s for both builds. The cause was the baseline's own background
+work: every node was re-hashing every stored segment once per second, so an idle cluster full of
+100 MiB files kept the CPU busy and slowed whichever cluster was being timed. That is why the harness
+runs one cluster at a time.
+
 ### Where the rest of the time goes
 
-A 100 MiB create still takes about 200 ms because the data is processed several times in sequence:
-read and checksummed on the client, spooled and hashed on the coordinator, then spooled and hashed
-again on each replica. A segment is completely spooled before it is forwarded. Forwarding chunks to
-the replicas while they are still arriving would overlap those passes, and is the obvious next
-change. I have not attempted it because it alters the write protocol and needs its own failure
-testing.
+A 100 MiB create still takes about 250 ms here. A segment is completely spooled on the coordinator
+before it is forwarded, and the primary is written before the other two replicas because it arbitrates
+first-create-only. Forwarding chunks while they are still arriving would overlap those hops, but it
+changes the write protocol and needs its own failure testing, so I have not attempted it.
 
 ## Size and fan-out matrix
 
