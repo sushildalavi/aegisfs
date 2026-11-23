@@ -48,3 +48,4 @@ buildStatus.json
 .dev/
 .dev-compose/
 __pycache__/
+.venv*/

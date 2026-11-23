@@ -10,7 +10,7 @@ import json
 import sys
 
 from . import __version__
-from .aegisfs_client import AegisClient, AegisError
+from .aegisfsClient import AegisClient, AegisError
 from .config import Config, ConfigError
 
 EXIT_OK = 0
@@ -19,8 +19,8 @@ EXIT_USAGE = 2
 EXIT_UNAVAILABLE = 3  # the integration's backing service (or its Python driver) is not reachable
 
 AREAS = {
-    "cassandra": "aegisfs_integrations.cassandra.commands",
-    "hdfs": "aegisfs_integrations.hdfs.commands",
+    "cassandra": "aegisfsIntegrations.cassandra.commands",
+    "hdfs": "aegisfsIntegrations.hdfs.commands",
 }
 
 
