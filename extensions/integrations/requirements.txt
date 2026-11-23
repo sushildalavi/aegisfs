@@ -1,0 +1,3 @@
+# Only the Cassandra integration needs a third-party package. The HDFS integration and the shared
+# code use the Python standard library.
+cassandra-driver>=3.29,<4
