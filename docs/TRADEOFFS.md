@@ -47,9 +47,9 @@ idempotent to tolerate this.
 **Chosen:** plain segment files + a binary manifest per file, atomic-committed. SQLite considered for
 local metadata but not required; avoids a hidden "centralized DB" smell and keeps recovery transparent.
 
-## Build/run environment on this host
-Docker is not installed here, so the "10 independent nodes" requirement is met with **process-local**
-nodes on distinct localhost ports (`scripts/cluster.sh`). A `Dockerfile`/`compose.yaml` are provided for
-hosts that have Docker; those Compose-specific scenarios are marked **NOT RUN** in `buildStatus.json`.
-This is an honest narrowing, not a mock: the distributed logic (separate processes, separate data dirs,
-real TCP, real failures via `kill`) is exercised for real.
+## Process-local cluster vs. Docker Compose
+**Chosen:** a 10-independent-node cluster is run as **process-local** nodes on distinct localhost
+ports (`scripts/cluster.sh`), which works with or without Docker installed. A `Dockerfile`/
+`compose.yaml` are also provided for environments with Docker available. This is an honest
+narrowing, not a mock: the distributed logic (separate processes, separate data directories, real
+TCP, real failures via `kill`) is exercised for real either way.

@@ -1,7 +1,7 @@
-# AegisFS Interview Guide
+# AegisFS Design FAQ
 
-Realistic questions with precise answers, grounded in the actual implementation. File references
-point at the code path that implements each answer.
+Common questions about the design, with precise answers grounded in the actual implementation.
+File references point at the code path that implements each answer.
 
 ### 1. How are objects placed? Why consistent hashing?
 Each file maps to `ringId(filename)` = top 64 bits of SHA-256 (`src/hash.cpp`). The ring is the

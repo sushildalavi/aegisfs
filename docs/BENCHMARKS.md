@@ -1,8 +1,7 @@
 # AegisFS Benchmarks
 
-All numbers here are **real measurements** produced by `benchmarks/runner/bench.sh` on the
-development host. They are machine-specific; reproduce with the commands below. Nothing here is
-borrowed from another project or invented.
+All numbers here are **real measurements** produced by `benchmarks/runner/bench.sh`. They are
+machine-specific; reproduce with the commands below.
 
 ## Methodology
 - Topology: process-local 5-node cluster, RF=3, loopback TCP (`127.0.0.1`), ports 9300–9304.
@@ -21,7 +20,7 @@ cmake --build build
 benchmarks/runner/bench.sh         # writes benchmarks/results/*
 ```
 
-## Results (dev host; macOS, Apple clang, loopback)
+## Results (macOS, Apple clang, loopback)
 
 End-to-end latency (mean) and throughput:
 
