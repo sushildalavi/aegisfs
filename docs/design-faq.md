@@ -1,130 +1,140 @@
-# AegisFS Design FAQ
+# Design FAQ
 
-Common questions about the design, with precise answers grounded in the actual implementation.
-File references point at the code path that implements each answer.
+Questions I expect about how AegisFS works, answered against the code as it is today. Function and
+test names are real; `docs/architecture.md` has the longer description.
 
-### 1. How are objects placed? Why consistent hashing?
-Each file maps to `ringId(filename)` = top 64 bits of SHA-256 (`src/hash.cpp`). The ring is the
-sorted set of live node ring ids; a file's replicas are the first 3 **distinct** successors
-(`Ring::successors`, `src/ring.cpp`). Consistent hashing means adding/removing a node only remaps a
-contiguous slice of the key space, so rebalancing moves ~1/N of keys, not all of them
+### How is a file placed on the cluster?
+
+A file name maps to `ringId(name)`, the top 64 bits of its SHA-256. The ring is the sorted set of
+live nodes' ring ids, and a file's replicas are the first three distinct successors of its id
+(`Ring::successors` in `src/ring.cpp`). Because only the neighbours of a joining or leaving node
+change owner, rebalancing moves about 1/N of the files rather than all of them
 (`RingTest.MinimalMovement`).
 
-### 2. Why SHA-256 ids and not `std::hash`?
-`std::hash` is per-process and unspecified across runs/implementations — fatal for a persistent
-ring shared by many processes. SHA-256-derived ids are stable and uniform
-(`HashTest.RingIdDeterministic`).
+### Why SHA-256 ids instead of `std::hash`?
 
-### 3. Is routing O(1)?
-No. Lookup is a binary search over the sorted ring: **O(log N)**. We state this honestly rather
-than claiming O(1) (`Ring::firstAtOrAfter`).
+`std::hash` is not guaranteed to give the same value in two processes or two builds, and every node
+has to agree on placement. A SHA-256 prefix is stable and spread evenly (`HashTest.RingIdDeterministic`).
 
-### 4. How does membership work, and how do you avoid resurrecting dead nodes?
-SWIM-inspired gossip: each node periodically exchanges its member table with a few peers and seeds
-(`Node::gossip_once`). A failed probe marks a node `SUSPECT`, which escalates to `FAILED` after a
-bounded window (`Membership::tick`). **Incarnation numbers** order conflicting rumors: a higher
-incarnation always wins, and a node refutes a false `SUSPECT`/`FAILED` about itself by bumping its
-own incarnation (`Membership::merge`, `MembershipTest.IncarnationRefute`).
+### Is routing O(1)?
 
-### 5. Walk through a write (create/append).
-The client streams bytes to any node (the per-op **coordinator**, not a cluster leader). The
-coordinator spools the payload to a temp file (bounded memory), computes its SHA-256, assigns an
-operation id, then fans the segment out to the 3 replicas (`Node::hCreate`/`hAppend`,
-`Node::fanout`). Each replica persists the segment (stage→fsync→rename) and commits its manifest
-atomically. The write is `OK` only if all 3 replicas commit; otherwise `DEGRADED`.
+No. It is a binary search over the sorted ring, so O(log N).
 
-### 6. How is per-client append order preserved despite retries and network reordering?
-Within a client, appends are serialized by the client (it waits for an ack before issuing the next),
-and each append carries a per-client monotonically increasing `clientSeq`. Segments are ordered by
-`(base-first, lamportTs, clientId, clientSeq)` (`SegmentRef::order_before`). So append A (lower
-seq) always precedes later append B from the same client on every replica.
+### How does membership work?
 
-### 7. How do concurrent appends from different clients converge?
-Each op gets a Lamport timestamp from the coordinator's logical clock
-(`Node::nextLamport`/`observeLamport`). The total order `(lamport, clientId, clientSeq)` is
-deterministic, so once the cluster is quiescent all replicas reconstruct the identical byte sequence.
-Lamport order is causal, not wall-clock — a deliberate tradeoff (`docs/tradeoffs.md`).
+Gossip in the style of SWIM. Each node exchanges its member table with a few peers
+(`Node::gossipOnce`). A failed probe makes a peer `SUSPECT`, and after a timeout `FAILED`. Before
+suspecting a peer, a node asks a few others to probe it as well, so one broken link does not get a
+healthy node declared dead (`Chaos.IndirectProbeSurvivesPointToPointPartition`).
 
-### 8. What makes retries idempotent?
-Every op has a unique `opId`. A replica's `add_segment` is a no-op if the `opId` already exists
-(`Manifest::add_segment`, `ManifestTest.Idempotent`), and `apply_segment_local` short-circuits a
-duplicate op. So replaying the same append at-most-once-applies (`Replication.IdempotentReplay`).
+Incarnation numbers order conflicting rumours. The higher one wins, and a node that hears it has been
+suspected bumps its own incarnation to refute that (`Membership::merge`,
+`MembershipTest.IncarnationRefute`).
 
-### 9. How is read-your-writes implemented?
-The client tracks, per file, the highest `clientSeq` it has had acknowledged (`Client`). `get`
-sends that watermark; the coordinator only serves a replica whose manifest already contains an op at
-or above it, else it returns `STALE` rather than stale bytes (`Node::hGet`,
-`Replication.ReadYourWrites`).
+### What happens on a write?
 
-### 10. What exactly does `merge` guarantee?
-In a quiescent, healthy cluster, `merge` reconciles every reachable designated replica to the union
-of committed ops in canonical order, then verifies all three reconstruct to the **same SHA-256**; it
-returns `OK` only then, `CONFLICT` otherwise (`Node::hMerge`,
-`Replication.MergeMakesReplicasIdentical`). It never falsely succeeds.
+The client streams the bytes to any node, which acts as coordinator for that one operation. The
+coordinator spools the upload to a temp file, hashing as it goes, assigns an operation id, and sends
+the segment to the three replicas (`Node::hCreate`, `Node::hAppend`, `Node::fanout`). Each replica
+fsyncs the segment, renames it into place and commits its manifest atomically.
 
-### 11. How do you survive 2 node failures?
-RF=3 on distinct successors. Killing 2 of a file's 3 replicas leaves the third — which by ring
-geometry moves up to primary — still serving (`Chaos.TwoNodeKillStillReadable`). The read path tries
-replicas in order and serves the first reachable one that meets the watermark.
+The write returns `OK` only if three replicas committed. Anything less is `DEGRADED`, with the
+number that did commit in the reply.
 
-### 12. How does re-replication work after a failure?
-On the maintenance loop, each node runs `reconcilePlacement()`: for every local file it computes the
-current successor set and **pushes** any missing ops to replicas that lack them. A new successor
-thus receives the data from a surviving replica without needing a global file index
+### How is a client's append order kept?
+
+A client waits for the ack on one append before sending the next, and every append carries a
+per-client sequence number. Segments sort by `(base first, lamportTs, clientId, clientSeq)`
+(`SegmentRef::orderBefore`), so one client's earlier append always sorts before its later one.
+
+### How do appends from different clients converge?
+
+Each operation gets a Lamport timestamp from the coordinator's clock (`Node::nextLamport`,
+`Node::observeLamport`). The tuple above is a total order, so once the cluster is quiet every replica
+rebuilds the same byte sequence. That order follows Lamport time, not wall-clock time: two
+concurrent appends from different clients land in a deterministic order, which need not be the order
+in which a stopwatch saw them.
+
+### What makes a retry safe?
+
+Each operation has a unique id. `Manifest::addSegment` ignores an id it has already recorded, and
+`Node::applySegmentLocal` returns early for a duplicate (`ManifestTest.Idempotent`,
+`Replication.IdempotentReplay`).
+
+### How does read-your-writes work?
+
+The client remembers the highest sequence number the cluster acknowledged for each file and sends it
+with `get`. A replica only serves the read if its manifest already contains that operation;
+otherwise another replica is tried, and if none qualifies the answer is `STALE` instead of old bytes
+(`Replication.ReadYourWrites`).
+
+### What does `merge` promise?
+
+On a quiet, healthy cluster it brings every reachable replica to the union of committed operations
+in canonical order, then checks that all of them hash the same. It returns `OK` only then, and
+`CONFLICT` otherwise (`Replication.MergeMakesReplicasIdentical`).
+
+### How can it lose two nodes and stay readable?
+
+Each file lives on three distinct nodes, so killing two leaves one, which still serves reads
+(`Chaos.TwoNodeKillStillReadable`). This only holds for files that had three healthy copies before
+the failures. A write that was `DEGRADED` has no such promise.
+
+### How does re-replication work?
+
+The maintenance loop on each node calls `Node::reconcilePlacement`. For every file it holds, it works
+out the current replica set and pushes any operations a designated replica is missing. A new
+successor gets its data from a surviving replica, with no global file index involved
 (`Chaos.ReReplicationRestoresReplica`).
 
-### 13. What about a node join — how do you avoid transient unavailability?
-Safe handoff: when a node is no longer a designated replica for a file, it deletes its local copy
-**only after** confirming every new designated replica has the full file (`reconcilePlacement`,
-`Chaos.JoinKeepsFilesAvailable`). The file is never unavailable because an old replica was deleted
-too early.
+### How does a node join without making files unavailable?
 
-### 14. What happens on a crash between writing data and committing the manifest?
-The op was never acknowledged, so correctness requires it to vanish. On restart, recovery deletes
-orphan segments not referenced by the committed manifest and wipes the staging dir
-(`StorageEngine::recover`, `StorageFixture.CrashRecoveryDropsOrphanSegment`). No torn file.
+A node that stops being a designated replica deletes its copy only after every new designated
+replica confirms it has the whole file (`Chaos.JoinKeepsFilesAvailable`).
 
-### 15. How do you stream 100 MiB without blowing up memory?
-All transfers move in bounded 1 MiB chunks via pull/sink callbacks; segments are hashed and written
-incrementally (`writeFrameStreaming`/`streamPayloadIn`, `StorageEngine::putSegmentStream`).
-The 64 MiB integration test and 100 MiB benchmark exercise this.
+### What if a node crashes between writing a segment and committing the manifest?
 
-### 16. Durability semantics — when is data safe?
-A segment is durable on a replica after fsync + atomic rename of both the segment and the manifest
-(`commitManifest`). A write is acknowledged only when all 3 replicas reach that state, so any 2 can
-fail afterward without data loss.
+That write was never acknowledged, so it has to disappear. On restart, `StorageEngine::recover`
+removes segments the committed manifest does not reference and clears the staging directory
+(`StorageFixture.CrashRecoveryDropsOrphanSegment`).
 
-### 17. How do you handle a false-positive failure detector?
-Suspicion is a soft state; a suspected node refutes by gossiping a higher incarnation, flipping
-itself back to `ALIVE` everywhere (`Membership::merge`). Re-replication is idempotent, so even if it
-starts before a refute, no data is duplicated or lost.
+### How are 100 MiB files moved without loading them?
 
-### 18. Where's the concurrency control? A global lock?
-No global cluster lock. There is a per-file lock (`shared_ptr<mutex>` keyed by file id) that guards
-**only** the short, purely-local manifest mutation (`apply_local_locked`). Coordinators never hold a
-lock across network fan-out — doing so caused a cross-node deadlock that we found and fixed (see the
-`fix(node)` commit); the fix is why `Concurrency.*` tests pass.
+Everything goes through bounded 1 MiB chunks. Segments are hashed and written as they arrive
+(`streamPayloadIn`, `StorageEngine::putSegmentStream`).
 
-### 19. CAP stance under partition?
-CP-leaning for the partitioned minority: writes need all 3 replicas for a durable ack (else
-`DEGRADED`), and reads refuse to serve below the watermark (`STALE`). We do not claim unrestricted
-partition tolerance (`docs/tradeoffs.md`).
+### How does the background integrity check work?
 
-### 20. Protocol design — how is framing safe?
-`MAGIC | VERSION | TYPE | HEADER_LEN | HEADER | PAYLOAD_LEN | PAYLOAD`, little-endian, every length
-bounds-checked against caps before allocation (`src/protocol.cpp`, `src/net.cpp`,
-`ProtocolTest.RejectsTruncated`). Header fields are length-prefixed and binary-safe.
+Each maintenance cycle every node compares each of its segment files against the manifest: the file
+must exist and have the recorded size. That is one `stat` per segment. Reading every byte and
+re-hashing it is expensive, so that runs once per file every `--scrub-interval-ms` (five minutes by
+default), and a file's timer starts when it is first written. The first version re-hashed
+everything every second, and on a laptop that was enough to slow 100 MiB creates from about 250 ms
+to several seconds once a few files were stored.
 
-### 21. What are the main bottlenecks, and what did you measure?
-`create` is replication-bound; parallel fan-out cuts 100 MiB create latency ~16% vs sequential
-(`docs/benchmarks.md`). For small files the thread overhead cancels the gain — a real,
-un-massaged result. `get` is single-replica and reaches ~530 MB/s over loopback.
+### Is there a global lock?
 
-### 22. How would this scale past tens of nodes?
-Gossip membership scales to hundreds with fanout tuning. The main limits here are one-thread-per-
-connection IO and no sub-file striping; adding striping (place segments on independent successor
-sets) and async IO would be the next steps. Stated as future work, not implemented.
+No. There is a per-file mutex that covers only the short local manifest update
+(`Node::applyLocalLocked`). A coordinator never holds it while talking to another node. An early
+version did, and two coordinators writing to each other could deadlock. `Concurrency.*` guards
+against that.
 
-### 23. What would you do with more time?
-Hinted handoff for degraded writes, vector-clock conflict detection for truly concurrent
-cross-client edits, a pluggable async networking backend, and TLS between nodes.
+### What happens under a network partition?
+
+The design leans toward consistency. A write needs all three replicas to be acknowledged as `OK`,
+and a read that cannot meet the client's watermark says `STALE`. The partition tests simulate an
+unreachable peer inside the test process; there is no test with a real partition tool yet.
+
+### What are the main bottlenecks?
+
+For `create`, it is replication: the client hashes and uploads, the coordinator spools and hashes,
+and then each replica spools and hashes again. Fanning out to the replicas in parallel was the first
+improvement, and committing the spooled file by rename instead of copying it again was the second
+(`docs/benchmarks.md` has the numbers). The remaining cost is one pass over 100 MiB per hop, because
+a segment is fully spooled before it is forwarded.
+
+### What would you do next?
+
+Forward data to replicas while it is still arriving instead of after it is spooled; hinted handoff
+for writes that are degraded; version vectors to detect truly concurrent edits from different
+clients; and tests with real network faults.
