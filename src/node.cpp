@@ -251,11 +251,14 @@ void Node::hReplicate(Conn& c, Fields& h, uint64_t plen, bool isBase) {
     repl::sendReply(c, Status::ChecksumMismatch);
     return;
   }
+  // got == seg.sha was just confirmed above, and tmp is used for exactly this one commit (no
+  // other target reads from it afterward, unlike fanout's shared srcPath) — safe to skip
+  // re-verifying and commit the spooled file directly instead of copying it through another.
   Status cs;
   {
     auto lk = fileLock(fileId);
     std::lock_guard<std::mutex> g(*lk);
-    cs = applySegmentLocal(fileId, filename, createOp, seg, tmp);
+    cs = applySegmentLocal(fileId, filename, createOp, seg, tmp, /*srcVerified=*/true);
   }
   fs::remove(tmp);
   Metrics::instance().incr(isBase ? "replicatePut" : "replicateAppend");
@@ -338,8 +341,12 @@ void Node::hGetFromReplica(Conn& c, Frame& fr) {
     }
   }
   uint64_t total = m.totalSize();
-  // First pass: compute the logical file SHA-256 (also verifies each segment checksum) so the
-  // reply header can carry the real file digest for merge/compare. Second pass streams bytes.
+  // Verify every segment's checksum before sending anything: reconstruct()'s sink is called as
+  // each chunk is read, so if we streamed straight to the network and only found a mismatch
+  // after a segment finished, the corrupted bytes would already be on the wire with a header
+  // that had already claimed Status::Ok. Running the verifying pass first, against a no-op
+  // sink, means a corrupt segment is caught before any reply — at the cost of reading local
+  // disk twice for a healthy file, which is the trade made deliberately here.
   Sha256Digest fsha{};
   Status fs = storageEngine->fileSha(m, fsha);
   if (!isOk(fs)) {
@@ -481,7 +488,7 @@ Status Node::spoolPayload(Conn& c, uint64_t plen, const std::string& tag, std::s
 
 Status Node::applySegmentLocal(const std::string& fileId, const std::string& filename,
                                  const std::string& createOp, const SegmentRef& seg,
-                                 const std::string& srcPath) {
+                                 const std::string& srcPath, bool srcVerified) {
   // Lock-free: the caller holds the per-file lock. Enforces idempotency and first-create-only.
   Manifest m;
   bool have = storageEngine->loadManifest(fileId, m);
@@ -491,19 +498,24 @@ Status Node::applySegmentLocal(const std::string& fileId, const std::string& fil
       if (s.kind == SegKind::Base && s.opId != seg.opId) return Status::AlreadyExists;
     }
   }
-  int fd = ::open(srcPath.c_str(), O_RDONLY);
-  if (fd < 0) return Status::IoError;
-  Sha256Digest stored;
-  Status ps = storageEngine->putSegmentStream(
-      fileId, seg.diskName, seg.size,
-      [&](char* b, size_t cap) -> size_t {
-        ssize_t n = ::read(fd, b, cap);
-        return n > 0 ? static_cast<size_t>(n) : 0;
-      },
-      stored);
-  ::close(fd);
-  if (!isOk(ps)) return ps;
-  if (stored != seg.sha) return Status::ChecksumMismatch;
+  if (srcVerified) {
+    Status ps = storageEngine->commitSpooledSegment(fileId, seg.diskName, srcPath);
+    if (!isOk(ps)) return ps;
+  } else {
+    int fd = ::open(srcPath.c_str(), O_RDONLY);
+    if (fd < 0) return Status::IoError;
+    Sha256Digest stored;
+    Status ps = storageEngine->putSegmentStream(
+        fileId, seg.diskName, seg.size,
+        [&](char* b, size_t cap) -> size_t {
+          ssize_t n = ::read(fd, b, cap);
+          return n > 0 ? static_cast<size_t>(n) : 0;
+        },
+        stored);
+    ::close(fd);
+    if (!isOk(ps)) return ps;
+    if (stored != seg.sha) return Status::ChecksumMismatch;
+  }
   if (!have) {
     m.filename = filename;
     m.fileId = fileId;
@@ -516,10 +528,10 @@ Status Node::applySegmentLocal(const std::string& fileId, const std::string& fil
 
 Status Node::applyLocalLocked(const std::string& fileId, const std::string& filename,
                                 const std::string& createOp, const SegmentRef& seg,
-                                const std::string& srcPath) {
+                                const std::string& srcPath, bool srcVerified) {
   auto lk = fileLock(fileId);
   std::lock_guard<std::mutex> g(*lk);
-  return applySegmentLocal(fileId, filename, createOp, seg, srcPath);
+  return applySegmentLocal(fileId, filename, createOp, seg, srcPath, srcVerified);
 }
 
 int Node::fanout(const std::vector<RingNode>& targets, const std::string& fileId,

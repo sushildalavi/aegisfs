@@ -39,6 +39,13 @@ class StorageEngine {
                             const std::function<size_t(char*, size_t)>& source,
                             Sha256Digest& outSha);
 
+  // Commit a segment whose bytes are ALREADY written and fsynced at `spooledPath` (same data
+  // directory, so this is a same-filesystem rename, not a copy) by renaming it directly into
+  // place instead of streaming it through putSegmentStream's own temp file. Only safe when the
+  // caller already knows spooledPath's content matches the intended checksum.
+  Status commitSpooledSegment(const std::string& fileId, const std::string& diskName,
+                                const std::string& spooledPath);
+
   // Read a segment's bytes fully into memory (small/control use).
   Status readSegment(const std::string& fileId, const std::string& diskName,
                       std::string& out) const;

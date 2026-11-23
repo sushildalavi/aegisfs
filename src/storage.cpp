@@ -226,6 +226,17 @@ Status StorageEngine::putSegmentStream(const std::string& fileId, const std::str
   return Status::Ok;
 }
 
+Status StorageEngine::commitSpooledSegment(const std::string& fileId, const std::string& diskName,
+                                            const std::string& spooledPath) {
+  if (!validComponent(fileId) || !validComponent(diskName)) return Status::InvalidArgument;
+  std::string dir = filesDir() + "/" + fileId;
+  if (!isOk(mkdirs(dir))) return Status::IoError;
+  std::string dst = dir + "/" + diskName;
+  if (::rename(spooledPath.c_str(), dst.c_str()) != 0) return Status::IoError;
+  if (!fsyncPath(dir)) return Status::IoError;
+  return Status::Ok;
+}
+
 Status StorageEngine::putSegment(const std::string& fileId, const std::string& diskName,
                                   const std::string& bytes, const Sha256Digest& expectedSha) {
   size_t off = 0;

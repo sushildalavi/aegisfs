@@ -102,14 +102,20 @@ class Node {
   Status spoolPayload(Conn& c, uint64_t plen, const std::string& tag, std::string& tmpPath,
                        Sha256Digest& sha);
   // Apply a segment to the LOCAL store + manifest (no network, no file-lock; caller holds it).
+  // `srcVerified` must be true ONLY when the caller already confirmed srcPath's content hashes
+  // to seg.sha in this same request (true for a coordinator's own spooled upload — it just
+  // computed that hash itself) — it skips re-reading and re-hashing the file and commits it with
+  // a durable rename instead, rather than copying it through a second temp file. Repair paths
+  // (merge, anti-entropy) fetch srcPath from a peer with no such guarantee and must leave this
+  // false, since the resulting re-verification is their only defense against a bad fetch.
   Status applySegmentLocal(const std::string& fileId, const std::string& filename,
                              const std::string& createOp, const SegmentRef& seg,
-                             const std::string& srcPath);
+                             const std::string& srcPath, bool srcVerified = false);
   // Same, but acquires the per-file lock for the (short, purely-local) critical section.
   // Coordinators use this for self-writes so they never hold a lock across network fan-out.
   Status applyLocalLocked(const std::string& fileId, const std::string& filename,
                             const std::string& createOp, const SegmentRef& seg,
-                            const std::string& srcPath);
+                            const std::string& srcPath, bool srcVerified = false);
   // Write `seg` (bytes in `srcPath`, `plen` long) to each target replica; self-writes go local,
   // others over the network. Sequential or concurrent per config.parallelReplication. Returns the
   // number of replicas that durably committed.
