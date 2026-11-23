@@ -5,6 +5,9 @@
 #include <fstream>
 #include <thread>
 
+#include "aegisfs/manifest.hpp"
+#include "aegisfs/partition.hpp"
+#include "aegisfs/replication.hpp"
 #include "support/clusterFixture.hpp"
 
 using namespace aegisfs;
@@ -202,5 +205,59 @@ TEST(Chaos, JoinKeepsFilesAvailable) {
     auto g = r.get("join/f" + std::to_string(i), out);
     ASSERT_TRUE(g.ok()) << statusName(g.status);
     EXPECT_EQ(fileShaHex(out), inSha);
+  }
+}
+
+// If the primary replica for a file dies right as a create is issued — after this coordinator's
+// placement still lists it as alive, before the failure detector catches up — the write to the
+// primary fails. The coordinator must treat that as a hard failure rather than falling through
+// to write the base on the secondaries instead: otherwise the primary comes back up still empty,
+// and a second create with different content could commit a competing base there.
+TEST(Chaos, PrimaryFailureDuringCreateDoesNotOrphanBase) {
+  Cluster cl(5);
+  ASSERT_TRUE(cl.awaitConvergence(5));
+
+  Client probe = cl.client(0, "probe");
+  auto ls = probe.ls("race/f");
+  ASSERT_TRUE(ls.ok());
+  std::string r0 = ls.info.getOr("r0_addr");
+  std::string r1 = ls.info.getOr("r1_addr");
+  std::string r2 = ls.info.getOr("r2_addr");
+  int entryIdx = -1;
+  for (size_t i = 0; i < cl.size(); ++i) {
+    std::string a = cl.addr(i);
+    if (a != r0 && a != r1 && a != r2) { entryIdx = static_cast<int>(i); break; }
+  }
+  ASSERT_GE(entryIdx, 0);
+
+  std::string in = makeTempFile("race", 4096, 5);
+  Client c(cl.addr(entryIdx), "c1");
+  // A single attempt only: the client's own retry would otherwise succeed once the failure
+  // detector catches up and legitimately re-places the file on a new primary, which is correct
+  // self-healing behavior, not what this test is checking. This test is about the first attempt,
+  // before the ring has caught up.
+  Client::RetryPolicy once;
+  once.maxAttempts = 1;
+  c.setRetryPolicy(once);
+
+  // Make the primary undialable without actually stopping it — a real kill takes long enough
+  // (closing the listener, joining its background threads) that the failure detector has
+  // usually already excluded it from placement by the time a racing create runs, which would
+  // make this test pass for the wrong reason. Blocking the address directly keeps the node (and
+  // therefore everyone's membership view of it) alive while still making the write fail, which
+  // is the actual race this guards against: the coordinator's placement says reps[0] is healthy,
+  // but the write to it fails anyway.
+  fault::blockAddress(r0);
+  auto r = c.create(in, "race/f");
+  fault::unblockAllAddresses();
+  EXPECT_FALSE(r.ok());
+  EXPECT_NE(r.status, Status::Degraded)
+      << "a failed primary write must never be reported as a degraded success";
+
+  std::string fileId = makeFileId("race/f");
+  for (const auto& addr : {r1, r2}) {
+    Manifest m;
+    EXPECT_FALSE(isOk(repl::fetchManifest(addr, fileId, m)))
+        << "secondary " << addr << " must not hold an orphaned base when the primary write failed";
   }
 }

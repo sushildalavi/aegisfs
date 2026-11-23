@@ -17,6 +17,7 @@ set(AEGISFS_TEST_SRCS
   concurrency/concurrencyTest.cpp
   concurrency/stressTest.cpp
   chaos/failureTest.cpp
+  chaos/partitionTest.cpp
 )
 
 foreach(src ${AEGISFS_TEST_SRCS})

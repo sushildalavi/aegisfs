@@ -54,6 +54,7 @@ add_library(aegisfsCore
   src/cli.cpp
   src/node.cpp
   src/metrics.cpp
+  src/partition.cpp
 )
 target_include_directories(aegisfsCore PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(aegisfsCore PUBLIC OpenSSL::Crypto OpenSSL::SSL Threads::Threads)

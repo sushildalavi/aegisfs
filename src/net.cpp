@@ -1,5 +1,7 @@
 #include "aegisfs/net.hpp"
 
+#include "aegisfs/partition.hpp"
+
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -115,6 +117,9 @@ void Conn::setSendTimeout(int ms) {
 }
 
 Conn Conn::dial(const std::string& host, int port, int timeoutMs) {
+  // Test-only fault injection (see aegisfs/partition.hpp): no-op unless a test has explicitly
+  // blocked this exact address, which nothing in production code ever does.
+  if (fault::addressBlocked(host + ":" + std::to_string(port))) return Conn();
   struct addrinfo hints{};
   hints.ai_family = AF_UNSPEC;
   hints.ai_socktype = SOCK_STREAM;

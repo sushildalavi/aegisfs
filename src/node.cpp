@@ -15,6 +15,7 @@
 #include <thread>
 
 #include "aegisfs/metrics.hpp"
+#include "aegisfs/partition.hpp"
 #include "aegisfs/replication.hpp"
 
 namespace fs = std::filesystem;
@@ -165,6 +166,7 @@ void Node::handleConn(std::shared_ptr<Conn> c) {
   if (plen && !c->readAll(fr.payload.data(), plen)) return;
   switch (t) {
     case MsgType::Ping: hPing(*c); break;
+    case MsgType::PingReq: hPingReq(*c, fr); break;
     case MsgType::Membership: hMembership(*c, fr); break;
     case MsgType::ListMemIds: hListMemIds(*c); break;
     case MsgType::FetchManifest: hFetchManifest(*c, fr); break;
@@ -185,6 +187,14 @@ void Node::handleConn(std::shared_ptr<Conn> c) {
 // ---------------- replica-role handlers ----------------
 
 void Node::hPing(Conn& c) { repl::sendReply(c, Status::Ok); }
+
+void Node::hPingReq(Conn& c, Frame& fr) {
+  // Indirect probe on behalf of another node: try to reach `target` ourselves and report back
+  // whether it answered. A short timeout, since the asking node is already waiting on us.
+  std::string target = fr.header.getOr("target");
+  bool reachable = !target.empty() && probeOnce(target, config.probeIntervalMs);
+  repl::sendReply(c, reachable ? Status::Ok : Status::Unavailable);
+}
 
 void Node::hMembership(Conn& c, Frame& fr) {
   std::vector<Member> incoming;
@@ -604,7 +614,18 @@ void Node::hCreate(Conn& c, Fields& h, uint64_t plen) {
     repl::sendReply(c, Status::AlreadyExists);
     return;
   }
-  int committed = isOk(primary) ? 1 : 0;
+  if (!isOk(primary)) {
+    // The primary is the sole arbiter of first-create-only for this file (it's the node every
+    // coordinator writes to first and that atomically rejects a duplicate base). If the primary
+    // write itself fails, we must not fall through to writing the base on the secondaries
+    // instead — that would leave the primary empty while secondaries hold a base, so a later
+    // retry against the now-recovered primary could commit a *different* base there, with two
+    // conflicting "first" bases now split across the replica set for the same file.
+    fs::remove(tmp);
+    repl::sendReply(c, primary);
+    return;
+  }
+  int committed = 1;
   // fan out to the remaining replicas (sequential or parallel per config)
   std::vector<RingNode> rest(reps.begin() + 1, reps.end());
   committed += fanout(rest, fileId, filename, opId, seg, tmp, plen, true);
@@ -636,7 +657,15 @@ Status Node::authoritativeManifest(const std::string& filename, Manifest& out,
         merged = m;
         found = true;
       } else {
-        for (const auto& s : m.segments) merged.addSegment(s);
+        for (const auto& s : m.segments) {
+          if (merged.addSegment(s)) continue;
+          if (merged.hasOp(s.opId)) continue;  // idempotent replay of an already-known op
+          // addSegment refused this op for a reason other than "already have it": either a
+          // disk-name collision or, most importantly, a second Base under a different opId.
+          // That means two replicas disagree about which write actually "created" this file —
+          // a real conflict, not something a merge can silently resolve by picking one side.
+          if (s.kind == SegKind::Base) return Status::Conflict;
+        }
         if (merged.createOpId.empty()) merged.createOpId = m.createOpId;
       }
     }
@@ -918,25 +947,56 @@ void Node::gossipLoop() {
   }
 }
 
+bool Node::probeOnce(const std::string& address, int timeoutMs) {
+  if (fault::partitionBlocked(membershipTable->selfAddr(), address)) return false;
+  std::string host; int port;
+  if (!parseEndpoint(address, host, port)) return false;
+  Conn c = Conn::dial(host, port, timeoutMs);
+  if (!c.valid()) return false;
+  Fields h;
+  if (!isOk(writeFrame(c, MsgType::Ping, h, ""))) return false;
+  Frame reply;
+  return isOk(readFrame(c, reply));
+}
+
 void Node::failureDetectorLoop() {
   while (running) {
     auto peers = membershipTable->alive();
     for (auto& m : peers) {
       if (!running) break;
       if (m.nodeId == membershipTable->selfId()) continue;
-      std::string host; int port;
-      if (!parseEndpoint(m.address, host, port)) continue;
-      Conn c = Conn::dial(host, port, config.probeIntervalMs);
-      bool ok = false;
-      if (c.valid()) {
-        Fields h;
-        if (isOk(writeFrame(c, MsgType::Ping, h, ""))) {
-          Frame reply;
-          ok = isOk(readFrame(c, reply));
+      if (probeOnce(m.address, config.probeIntervalMs)) {
+        membershipTable->markAlive(m.nodeId, m.address, m.incarnation);
+        continue;
+      }
+      // Direct probe failed. Before declaring the peer suspect, ask a handful of other alive
+      // members to probe it on our behalf (SWIM's indirect probe / "ping-req"). This is what
+      // tells a point-to-point partition (we personally can't reach it, everyone else can)
+      // apart from an actual failure (nobody can reach it) — without indirect probing, every
+      // node on the wrong side of a partition would wrongly declare the other side dead.
+      bool confirmedByHelper = false;
+      int asked = 0;
+      for (auto& helper : peers) {
+        if (asked >= config.indirectProbeCount) break;
+        if (helper.nodeId == membershipTable->selfId() || helper.nodeId == m.nodeId) continue;
+        ++asked;
+        std::string host; int port;
+        if (!parseEndpoint(helper.address, host, port)) continue;
+        Conn hc = Conn::dial(host, port, config.probeIntervalMs);
+        if (!hc.valid()) continue;
+        Fields req;
+        req.set("target", m.address);
+        if (!isOk(writeFrame(hc, MsgType::PingReq, req, ""))) continue;
+        Frame reply;
+        if (isOk(readFrame(hc, reply)) &&
+            static_cast<Status>(reply.header.getI64("status", static_cast<int64_t>(Status::Internal))) ==
+                Status::Ok) {
+          confirmedByHelper = true;
+          break;
         }
       }
-      if (!ok) membershipTable->markSuspect(m.nodeId);
-      else membershipTable->markAlive(m.nodeId, m.address, m.incarnation);
+      if (confirmedByHelper) membershipTable->markAlive(m.nodeId, m.address, m.incarnation);
+      else membershipTable->markSuspect(m.nodeId);
     }
     sleepMs(config.probeIntervalMs);
   }

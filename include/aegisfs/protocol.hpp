@@ -13,6 +13,7 @@ enum class MsgType : uint16_t {
   Ping = 1,
   Pong = 2,
   Membership = 3,       // gossip push of member table
+  PingReq = 4,          // SWIM-style indirect probe: "please ping this address for me"
   Create = 10,
   Get = 11,
   Append = 12,

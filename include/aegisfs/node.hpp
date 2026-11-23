@@ -31,6 +31,11 @@ struct NodeConfig {
   int suspectMs{1500};
   int reapMs{30000};
   int reconcileMs{1000};
+  // SWIM-style indirect probing: when a direct probe to a peer fails, ask this many other
+  // alive members to probe it on our behalf before declaring it suspect. This is what lets the
+  // cluster tell "that one peer is actually down" apart from "I personally can't reach it" —
+  // the second case is a point-to-point network partition, not a failure.
+  int indirectProbeCount{3};
 };
 
 // A single AegisFS process: storage replica + request coordinator + membership participant.
@@ -64,9 +69,12 @@ class Node {
   void gossipLoop();
   void failureDetectorLoop();
   void maintenanceLoop();
+  // Direct TCP ping to `address`; true if it replied within timeoutMs.
+  bool probeOnce(const std::string& address, int timeoutMs);
 
   // request handlers (replica role)
   void hPing(Conn& c);
+  void hPingReq(Conn& c, Frame& fr);
   void hMembership(Conn& c, Frame& fr);
   void hListMemIds(Conn& c);
   void hReplicate(Conn& c, Fields& h, uint64_t plen, bool isBase);
