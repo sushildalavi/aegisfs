@@ -50,3 +50,13 @@ reads again. It skips with a message when Docker is not installed. CI runs it on
 Nodes in containers bind `0.0.0.0` but announce their service name with `--advertise nodeN`, which
 is also the name in the certificate. Without `--advertise` a node announces its bind address, and
 `0.0.0.0` is of no use to its peers.
+
+## Cassandra index and HDFS import/export
+
+Two optional integrations connect AegisFS to Apache Cassandra (a searchable index of file metadata)
+and to HDFS (verified import and export over WebHDFS). They run as the separate
+`aegisfs-integrations` tool and as the `cassandra` and `hdfs` Compose profiles, and the cluster works the
+same without them. See [integrationArchitecture.md](integrationArchitecture.md) for how they fit,
+[cassandraIntegration.md](cassandraIntegration.md) and [hdfsIntegration.md](hdfsIntegration.md) for each,
+[integrationSecurity.md](integrationSecurity.md), [integrationTesting.md](integrationTesting.md) and
+[integrationBenchmarks.md](integrationBenchmarks.md).

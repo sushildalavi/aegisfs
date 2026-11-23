@@ -179,9 +179,11 @@ observe("create", "reports/2026/q1.csv", spool_dir="/var/lib/aegisfs-index/spool
 
 For code that calls AegisFS (for example the gateway). It only appends a `touch` event to the local
 spool and returns `True` (queued) or `False`. It does not use the network, does not wait for
-Cassandra or AegisFS, and never raises. Nothing in this repository calls it yet; wiring it into the
-gateway is a separate change. Metadata always comes from AegisFS at drain time, never from the
-caller, so the hook cannot put wrong values in the index.
+Cassandra or AegisFS, and never raises. The REST gateway calls it after a successful `PUT` or `POST`
+when `AEGISFS_INT_CASSANDRA_SPOOL_DIR` is set, and does nothing otherwise; a failure in the hook is
+ignored and cannot change the reply to the client. Files written directly with the `aegisfs` CLI do not
+go through the gateway, so only a reconcile finds those. Metadata always comes from AegisFS at drain
+time, never from the caller, so the hook cannot put wrong values in the index.
 
 ## Queries
 
@@ -220,6 +222,7 @@ JSON file (`--config` or `AEGISFS_INTEGRATIONS_CONFIG`, section `cassandra`), th
 | `tls` | `true` | TLS to Cassandra |
 | `tls_ca_file` | system store | CA certificate to trust |
 | `tls_verify` | `true` | verify the certificate and hostname |
+| `tls_server_name` | none | name to check the certificate against. By default the driver checks the IP address it connected to, so a certificate that only names a DNS name needs this set to that name. |
 | `allow_insecure` | `false` | must be `true` to turn `tls` or `tls_verify` off. Development only. |
 | `read_consistency`, `write_consistency` | `LOCAL_QUORUM` | |
 | `serial_consistency` | `LOCAL_SERIAL` | for the lightweight transactions |
@@ -372,4 +375,5 @@ prefix listing 17.6 ms (p95 50 ms, 200 samples), concurrent lookups reached abou
   indexer's `status` ran against the plain container, but the test suite was not run in the image.
 - One indexer per spool directory is assumed. Two drains over one directory are safe but may
   replay events twice.
-- Nothing in the gateway calls `observe` yet.
+- The gateway queues an index request only when `AEGISFS_INT_CASSANDRA_SPOOL_DIR` is set, and only for
+  writes that go through it.
