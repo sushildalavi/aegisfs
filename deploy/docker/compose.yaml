@@ -32,53 +32,53 @@ services:
   node0:
     <<: *node
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node0", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node0"]
-    ports: ["9100:9100"]
+    ports: ["${AEGISFS_PORT0:-9100}:9100"]
     volumes: ["node0-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
   node1: &joiner
     <<: *node
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node1", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node1", "--seeds", "node0:9100"]
-    ports: ["9101:9100"]
+    ports: ["${AEGISFS_PORT1:-9101}:9100"]
     volumes: ["node1-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
     depends_on: [node0]
   node2:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node2", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node2", "--seeds", "node0:9100"]
-    ports: ["9102:9100"]
+    ports: ["${AEGISFS_PORT2:-9102}:9100"]
     volumes: ["node2-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
   node3:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node3", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node3", "--seeds", "node0:9100"]
-    ports: ["9103:9100"]
+    ports: ["${AEGISFS_PORT3:-9103}:9100"]
     volumes: ["node3-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
   node4:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node4", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node4", "--seeds", "node0:9100"]
-    ports: ["9104:9100"]
+    ports: ["${AEGISFS_PORT4:-9104}:9100"]
     volumes: ["node4-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
   node5:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node5", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node5", "--seeds", "node0:9100"]
-    ports: ["9105:9100"]
+    ports: ["${AEGISFS_PORT5:-9105}:9100"]
     volumes: ["node5-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
   node6:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node6", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node6", "--seeds", "node0:9100"]
-    ports: ["9106:9100"]
+    ports: ["${AEGISFS_PORT6:-9106}:9100"]
     volumes: ["node6-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
   node7:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node7", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node7", "--seeds", "node0:9100"]
-    ports: ["9107:9100"]
+    ports: ["${AEGISFS_PORT7:-9107}:9100"]
     volumes: ["node7-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
   node8:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node8", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node8", "--seeds", "node0:9100"]
-    ports: ["9108:9100"]
+    ports: ["${AEGISFS_PORT8:-9108}:9100"]
     volumes: ["node8-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
   node9:
     <<: *joiner
     command: ["serve", "--data", "/data", "--host", "0.0.0.0", "--port", "9100", "--advertise", "node9", "--probe-interval-ms", "1000", "--suspect-ms", "6000", "--id", "node9", "--seeds", "node0:9100"]
-    ports: ["9109:9100"]
+    ports: ["${AEGISFS_PORT9:-9109}:9100"]
     volumes: ["node9-data:/data", "${AEGISFS_CREDS_DIR:-../../.dev}:/creds:ro"]
 
   gateway:

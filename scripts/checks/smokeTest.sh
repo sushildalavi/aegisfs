@@ -22,6 +22,8 @@ sleep 3
 members=$("$BIN" --entry "$E" listMemIds | wc -l | tr -d ' ')
 [ "$members" -eq 3 ] || fail "expected 3 members, got $members"
 echo "[ok] membership converged: $members nodes"
+"$BIN" --entry "$E" members | grep -q '^m2_addr=127.0.0.1:' || fail "members did not list three addresses"
+echo "[ok] members lists node addresses"
 
 # create + get round trip
 head -c 123456 /dev/urandom > "$TMP/in.bin"

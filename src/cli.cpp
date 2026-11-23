@@ -110,6 +110,7 @@ void printHelp() {
       "  listStore                         list files stored on the entry node\n"
       "  getFromReplica <addr> <name> <localfile>   pure replica read (no repair)\n"
       "  listMemIds                      list members by ring id + status\n"
+      "  members                         key=value membership with node addresses\n"
       "  multiAppend <name> <node> <file> [<node> <file> ...]  concurrent appends\n"
       "  status | health                   node status / liveness\n"
       "  help                              this message\n";
@@ -219,6 +220,23 @@ int runClient(const std::string& entry, std::vector<std::string> cmd) {
       }
     }
     return exitCode(r.status);
+  }
+  if (op == "members") {
+    // Machine-readable membership, including each node's address. Read-only; listMemIds keeps its
+    // human-oriented layout.
+    auto r = cli.listMemIds();
+    std::vector<Member> members;
+    if (!isOk(r.status) || !Membership::parse(r.message, members)) { printInfo(r); return exitCode(r.status); }
+    std::sort(members.begin(), members.end(),
+              [](const Member& a, const Member& b) { return a.nodeId < b.nodeId; });
+    std::printf("status=OK\ncount=%zu\n", members.size());
+    for (size_t i = 0; i < members.size(); ++i) {
+      std::printf("m%zu_node=%s\nm%zu_addr=%s\nm%zu_state=%s\nm%zu_inc=%llu\n", i,
+                  members[i].nodeId.c_str(), i, members[i].address.c_str(), i,
+                  memberStateName(members[i].state).c_str(), i,
+                  (unsigned long long)members[i].incarnation);
+    }
+    return 0;
   }
   if (op == "multiAppend" && cmd.size() >= 4) {
     std::string name = cmd[1];
