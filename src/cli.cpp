@@ -52,7 +52,8 @@ void printHelp() {
       "AegisFS — fault-tolerant distributed file system\n\n"
       "Run a node:\n"
       "  aegisfs serve --data <dir> [--host 127.0.0.1] [--port N] [--id NAME]\n"
-      "                [--seeds host:port,host:port] [--rf 3]\n\n"
+      "                [--seeds host:port,host:port] [--rf 3]\n"
+      "                [--scrub-interval-ms 300000]\n\n"
       "  TLS node flags: --tls-cert FILE --tls-key FILE [--tls-ca FILE] [--tls-require-client]\n"
       "Client commands (prefix with --entry host:port):\n"
       "  create <localfile> <name>         upload a new file (first-create-only)\n"
@@ -77,6 +78,7 @@ int runServe(const std::vector<std::string>& args) {
   cfg.nodeId = argValue(args, "--id", "");
   cfg.rf = std::atoi(argValue(args, "--rf", "3").c_str());
   cfg.parallelReplication = argValue(args, "--parallel", "1") != "0";
+  cfg.scrubIntervalMs = std::atoi(argValue(args, "--scrub-interval-ms", "300000").c_str());
   cfg.seeds = splitCsv(argValue(args, "--seeds", ""));
   TlsConfig tls;
   tls.certificate = argValue(args, "--tls-cert");

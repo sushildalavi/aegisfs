@@ -260,6 +260,15 @@ Status StorageEngine::putSegment(const std::string& fileId, const std::string& d
   return Status::Ok;
 }
 
+bool StorageEngine::segmentSize(const std::string& fileId, const std::string& diskName,
+                                 uint64_t& out) const {
+  if (!validComponent(fileId) || !validComponent(diskName)) return false;
+  struct stat st;
+  if (::stat(filePath(fileId, diskName).c_str(), &st) != 0) return false;
+  out = static_cast<uint64_t>(st.st_size);
+  return true;
+}
+
 Status StorageEngine::readSegment(const std::string& fileId, const std::string& diskName,
                                    std::string& out) const {
   out.clear();

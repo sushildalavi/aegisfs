@@ -37,7 +37,7 @@ class Cluster {
       cfg.probeIntervalMs = 120;
       cfg.suspectMs = 300;
       cfg.reapMs = 5000;
-      cfg.reconcileMs = 150;
+      cfg.reconcileMs = 150; cfg.scrubIntervalMs = 0;
       if (!seed.empty()) cfg.seeds = {seed};
       auto node = std::make_unique<Node>(std::move(cfg));
       if (!isOk(node->start())) throw std::runtime_error("node start failed");
@@ -95,7 +95,7 @@ class Cluster {
     cfg.nodeId = "node" + std::to_string(i);
     cfg.rf = 3;
     cfg.gossipIntervalMs = 80; cfg.probeIntervalMs = 120; cfg.suspectMs = 300;
-    cfg.reapMs = 5000; cfg.reconcileMs = 150;
+    cfg.reapMs = 5000; cfg.reconcileMs = 150; cfg.scrubIntervalMs = 0;
     cfg.seeds = {addresses[0]};
     auto node = std::make_unique<Node>(std::move(cfg));
     if (!isOk(node->start())) throw std::runtime_error("addNode failed");
@@ -119,7 +119,7 @@ class Cluster {
     cfg.nodeId = "node" + std::to_string(i);
     cfg.rf = ringNodes.empty() ? 3 : 3;
     cfg.gossipIntervalMs = 80; cfg.probeIntervalMs = 120; cfg.suspectMs = 300;
-    cfg.reapMs = 5000; cfg.reconcileMs = 150;
+    cfg.reapMs = 5000; cfg.reconcileMs = 150; cfg.scrubIntervalMs = 0;
     cfg.seeds = {addresses[(i + 1) % addresses.size()]};
     auto node = std::make_unique<Node>(std::move(cfg));
     if (!isOk(node->start())) throw std::runtime_error("restart failed");

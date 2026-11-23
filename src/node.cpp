@@ -516,6 +516,7 @@ Status Node::applySegmentLocal(const std::string& fileId, const std::string& fil
     if (!isOk(ps)) return ps;
     if (stored != seg.sha) return Status::ChecksumMismatch;
   }
+  markScrubbed(fileId, /*overwrite=*/false);
   if (!have) {
     m.filename = filename;
     m.fileId = fileId;
@@ -1035,6 +1036,24 @@ void Node::maintenanceLoop() {
   }
 }
 
+static int64_t steadyMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void Node::markScrubbed(const std::string& fileId, bool overwrite) {
+  std::lock_guard<std::mutex> g(scrubMu);
+  if (overwrite) lastScrubMs[fileId] = steadyMs();
+  else lastScrubMs.emplace(fileId, steadyMs());
+}
+
+bool Node::scrubDue(const std::string& fileId) {
+  if (config.scrubIntervalMs <= 0) return true;
+  std::lock_guard<std::mutex> g(scrubMu);
+  auto it = lastScrubMs.find(fileId);
+  return it == lastScrubMs.end() || steadyMs() - it->second >= config.scrubIntervalMs;
+}
+
 void Node::antiEntropy() {
   if (!storageEngine) return;
   auto manifests = storageEngine->listManifests();
@@ -1045,14 +1064,24 @@ void Node::antiEntropy() {
       if (r.nodeId == membershipTable->selfId()) selfReplica = true;
     if (!selfReplica) continue;  // push/handoff path owns non-replica files
 
-    // 1) detect locally corrupt/missing segments (checksum mismatch) that need re-fetch.
+    // 1) detect locally corrupt/missing segments that need re-fetch. A stat catches missing and
+    //    truncated files every cycle; the full re-hash that catches silent corruption is
+    //    expensive (it reads every byte we store), so it runs once per scrubIntervalMs per file.
     std::vector<SegmentRef> need = {};
+    const bool fullScrub = scrubDue(m.fileId);
     for (const auto& seg : m.segments) {
+      uint64_t onDisk = 0;
+      if (!storageEngine->segmentSize(m.fileId, seg.diskName, onDisk) || onDisk != seg.size) {
+        need.push_back(seg);
+        continue;
+      }
+      if (!fullScrub) continue;
       Sha256Stream hsh;
       bool ok = isOk(storageEngine->readSegmentStream(
           m.fileId, seg.diskName, [&](const char* b, size_t n) { hsh.update(b, n); return true; }));
       if (!ok || hsh.finalize() != seg.sha) need.push_back(seg);
     }
+    if (fullScrub) markScrubbed(m.fileId);
 
     // 2) learn ops present on peer replicas but missing locally.
     for (const auto& r : reps) {

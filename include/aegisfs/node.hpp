@@ -31,6 +31,10 @@ struct NodeConfig {
   int suspectMs{1500};
   int reapMs{30000};
   int reconcileMs{1000};
+  // How often each stored file's segments are fully re-read and re-hashed to catch bit rot.
+  // Between scrubs the maintenance loop only stats segment files (missing/truncated check).
+  // 0 re-hashes on every maintenance cycle, which tests use to get fast repair.
+  int scrubIntervalMs{300000};
   // SWIM-style indirect probing: when a direct probe to a peer fails, ask this many other
   // alive members to probe it on our behalf before declaring it suspect. This is what lets the
   // cluster tell "that one peer is actually down" apart from "I personally can't reach it" —
@@ -137,6 +141,15 @@ class Node {
   std::thread gossipThread;
   std::thread fdThread;
   std::thread maintThread;
+  // Last time (steady-clock ms) each file's segments were known good, either because they were
+  // just committed after a checksum check or because a scrub re-hashed them.
+  mutable std::mutex scrubMu;
+  std::map<std::string, int64_t> lastScrubMs;
+  // Records a fresh scrub time. With overwrite=false an existing entry is left alone, so a stream
+  // of appends does not keep pushing back the next full re-hash of the older segments.
+  void markScrubbed(const std::string& fileId, bool overwrite = true);
+  bool scrubDue(const std::string& fileId);
+
   mutable std::mutex fileLocksMu;
   std::map<std::string, std::shared_ptr<std::mutex>> fileLocks;
   std::shared_ptr<std::mutex> fileLock(const std::string& fileId);
