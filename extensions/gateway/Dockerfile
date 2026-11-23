@@ -9,6 +9,6 @@ FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y --no-install-recommends libssl3 python3 ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /src/build/aegisfs /usr/local/bin/aegisfs
-COPY gateway/aegisfsGateway.py /app/gateway.py
-COPY metrics/prometheusExporter.py /app/prometheusExporter.py
+COPY extensions/gateway/aegisfsGateway.py /app/gateway.py
+COPY extensions/metrics/prometheusExporter.py /app/prometheusExporter.py
 ENTRYPOINT ["python3"]

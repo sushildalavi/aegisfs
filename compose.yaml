@@ -71,7 +71,7 @@ services:
   gateway:
     build:
       context: .
-      dockerfile: gateway/Dockerfile
+      dockerfile: extensions/gateway/Dockerfile
     command: ["/app/gateway.py"]
     environment:
       AEGISFS_ENTRY: node0:9100
@@ -84,7 +84,7 @@ services:
   exporter:
     build:
       context: .
-      dockerfile: gateway/Dockerfile
+      dockerfile: extensions/gateway/Dockerfile
     command: ["/app/prometheusExporter.py"]
     environment:
       AEGISFS_ENTRY: node0:9100
@@ -96,7 +96,7 @@ services:
   prometheus:
     image: prom/prometheus:v2.53.0
     volumes:
-      - ./metrics/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./extensions/metrics/prometheus.yml:/etc/prometheus/prometheus.yml:ro
     ports: ["9090:9090"]
     depends_on: [exporter]
     networks: [aegis]
