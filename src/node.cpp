@@ -479,7 +479,9 @@ Status Node::spoolPayload(Conn& c, uint64_t plen, const std::string& tag, std::s
     }
     return true;
   });
-  ::fsync(fd);
+  // The spooled file may be renamed straight into the store, so a failed flush has to fail the
+  // upload rather than be acknowledged as durable.
+  if (isOk(s) && ::fsync(fd) != 0) s = Status::IoError;
   ::close(fd);
   if (!isOk(s)) { fs::remove(tmpPath); return s; }
   sha = hasher.finalize();
