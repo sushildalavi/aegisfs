@@ -15,14 +15,27 @@ def main(path):
     missing = required - set(rows[0])
     if missing:
         raise SystemExit(f"benchmark output missing columns: {sorted(missing)}")
+    seen = set()
     for i, row in enumerate(rows, 2):
         try:
             if float(row["latency_ms"]) <= 0 or float(row["bytes_per_s"]) <= 0:
                 raise ValueError
-            int(row["size_kb"])
-            int(row["rep"])
+            size = int(row["size_kb"])
+            repetition = int(row["rep"])
+            if size <= 0 or repetition <= 0:
+                raise ValueError
+            key = (row["mode"], row["op"], size, repetition)
+            if key in seen:
+                raise ValueError
+            seen.add(key)
         except ValueError:
             raise SystemExit(f"invalid benchmark row {i}: {row}")
+    modes = {row["mode"] for row in rows}
+    operations = {row["op"] for row in rows}
+    if not {"sequential", "parallel"}.issubset(modes):
+        raise SystemExit(f"benchmark output must include sequential and parallel modes: {sorted(modes)}")
+    if not {"create", "get"}.issubset(operations):
+        raise SystemExit(f"benchmark output must include create and get operations: {sorted(operations)}")
     print(f"validated {len(rows)} benchmark rows")
 
 
