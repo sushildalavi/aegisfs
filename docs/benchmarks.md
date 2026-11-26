@@ -1,104 +1,58 @@
 # Benchmarks
 
-Everything here was measured on one machine and is only meaningful relative to other numbers taken
-on the same machine. Raw samples are in `benchmarks/results/`.
+These are historical results recorded on one laptop, with the raw data committed under
+`benchmarks/`. They were not re-measured for the current commit. Compare numbers only within one
+table.
 
-**Machine:** MacBook with an Apple M3 (8 cores), 16 GB RAM, APFS SSD, macOS, Apple clang,
-`RelWithDebInfo`. All nodes are processes on the same host talking over loopback, and each client
-call is a separate `aegisfs` process.
+**Machine:** Apple M3 (8 cores), 16 GB RAM, macOS, Apple clang, `RelWithDebInfo`. All nodes and
+clients ran on that host over loopback, and each client operation was a separate `aegisfs` process.
 
-## What a measurement includes
+A `create` is timed from client start to exit: upload to a coordinator, fan-out to three replicas,
+fsync, rename and manifest commit on each, with checksums verified and `status=OK` required. Plain
+`fsync` on macOS does not force data to the physical media (that needs `F_FULLFSYNC`), so absolute
+write times are friendlier than they would be with a real flush.
 
-A `create` is timed from the moment the client process starts until it exits. In between, the client
-uploads to a coordinator, the coordinator fans the file out to the three replicas, and each replica
-fsyncs and renames the segment and commits a manifest. The call returns only after all three have
-committed, with checksums verified. None of that is relaxed for the benchmarks: fsync stays on,
-the replication factor stays 3, and every `create` has to come back `status=OK`.
+## 100 MiB create, before and after the write-path changes
 
-One caveat about fsync on macOS: plain `fsync` there does not force data to the physical media (that
-needs `F_FULLFSYNC`), so a 300 MiB write plus fsync takes under 100 ms on this machine. Absolute
-numbers here are therefore friendlier than they would be on Linux with a real flush. The comparisons
-between builds are not affected, because both builds use the same call.
-
-## Creating a 100 MiB file: before and after
-
-The question was whether changes to the write path made replicated creates faster.
-`benchmarks/compareBuilds.py` runs two binaries on separate fresh 5-node clusters, one at a time,
-alternating which goes first over four rounds. Each round does one warm-up create and then ten timed
-ones.
-
-- **Before:** the commit just before "Rename replica uploads into place instead of copying them
-  twice" (`5f95de8`), built in a separate worktree.
-- **After:** the build with all four changes listed below.
+`benchmarks/compareBuilds.py` runs two binaries on separate, fresh five-node clusters, one cluster
+at a time, alternating which goes first. This run used four rounds of one warm-up and ten timed
+creates per build, with TLS off on both. "Before" is commit `5f95de8`. "After" included the four
+changes below. Raw samples are in `benchmarks/results/createComparison.csv` and the harness output
+in `createComparison.txt`.
 
 | 100 MiB create | Before | After | Change |
 |---|---|---|---|
-| Median, first 5 creates on a fresh cluster (n=20) | 461.9 ms | 227.1 ms | **−50.8%** |
-| Median, all 10 creates per cluster (n=40) | 496.4 ms | 254.3 ms | **−48.8%** |
-| Mean (n=40) | 609.4 ms | 250.6 ms | −58.9% |
-| p95 (n=40) | 1253.7 ms | 294.4 ms | −76.5% |
-| p99 (n=40) | 1584.9 ms | 364.7 ms | −77.0% |
-| Std deviation (n=40) | 287.0 ms | 36.5 ms | −87.3% |
+| Median, first 5 creates per cluster (n=20) | 461.9 ms | 227.1 ms | -50.8% |
+| Median, all creates (n=40) | 496.4 ms | 254.3 ms | -48.8% |
+| Mean (n=40) | 609.4 ms | 250.6 ms | -58.9% |
+| p95 (n=40) | 1253.7 ms | 294.4 ms | -76.5% |
+| p99 (n=40) | 1584.9 ms | 364.7 ms | -77.0% |
+| Standard deviation (n=40) | 287.0 ms | 36.5 ms | -87.3% |
 | Throughput at the median | 211 MB/s | 412 MB/s | +95% |
 
-The goal was a median cut of more than 40%, and both views clear it. The machine was slower and
-busier on the day of this run than on the day of the first one (the "before" build took 312 ms to
-create then and 462 ms here), so compare the percentages, not the milliseconds. The "before" build
-suffers more than the "after" build when the machine is loaded, which inflates the percentage a
-little. The cleaner way to see what the last two changes are worth is to compare against the build
-that already had the first two. Over six interleaved rounds on this machine that measured:
+The machine was busy during this run, and the older build suffers more under load, which probably
+inflates the percentages. An earlier run on a quieter day, with only the first two changes, measured
+medians of 315.7 ms and 198.6 ms (-37%, n=40). Its samples are the previous revision of the same CSV
+in the Git history.
 
-| 100 MiB create | Previous build | Current | Change |
-|---|---|---|---|
-| Median, first 5 creates (n=30) | 309.2 ms | 240.6 ms | −22.2% |
-| Median, all creates (n=60) | 315.0 ms | 263.1 ms | −16.5% |
+The changes:
 
-On the earlier, quieter day the first two changes alone measured 312.0 ms to 198.7 ms (−36%, n=20)
-and −37% over all creates. Those figures are in the git history of this page, and I did not reach
-40% with them.
+1. Replicas rename the spooled upload into place instead of copying it through a second temporary
+   file.
+2. The background integrity check no longer re-hashes every stored segment every second.
+3. A coordinator that is also a replica hard-links its spooled file instead of re-reading, copying
+   and re-hashing it.
+4. Receiving, writing and hashing an upload overlap.
 
-### What changed
-
-1. **Replicas rename the spooled upload into place** instead of copying it through a second temp
-   file. The hash had already been checked, so the second copy only added disk writes.
-2. **The background integrity check no longer re-hashes everything every second.** Each cycle now
-   stats the segment files, and a full re-hash runs once per file every five minutes
-   (`--scrub-interval-ms`). With a few 100 MiB files stored, the old behaviour was hundreds of MB of
-   SHA-256 per node per second and pushed create latency from about 250 ms to several seconds in a
-   back-to-back run.
-3. **The coordinator's own copy is hard-linked into place.** When the coordinator is also one of
-   the three replicas, it used to re-read the whole upload it had just hashed, copy it through a new
-   temp file, hash it again and fsync that. The spooled file has to stay where it is because the
-   other replicas stream from it, so it cannot simply be renamed. It is now hard-linked, which skips
-   the second copy. The bytes were already fsynced and checked against the hash computed in the same
-   request. Merge and anti-entropy still re-verify what they fetch from peers.
-4. **Receiving, writing and hashing an upload overlap.** `spoolPayload` used to do those three
-   things one chunk at a time on one thread. A second thread now hashes each chunk while the first
-   receives the next and writes the current one, through a small ring of buffers. Every byte is
-   still hashed in order and the file is still fsynced before the upload is acknowledged. This
-   applies on the coordinator and on every replica.
-
-Two other commits in the same range changed correctness rather than speed: a create or append on a
-ring with fewer than three members now returns `DEGRADED` instead of `OK`, and a failed `fsync` on
-an upload is now an error. Neither affects the timing above in any measurable way.
-
-A first version of the comparison started both clusters at once and alternated samples between them.
-That produced medians of about 2 to 4 s for both builds. The cause was the baseline's own background
-work: every node was re-hashing every stored segment once per second, so an idle cluster full of
-100 MiB files kept the CPU busy and slowed whichever cluster was being timed. That is why the harness
-runs one cluster at a time.
-
-### Where the rest of the time goes
-
-A 100 MiB create still takes about 250 ms here. A segment is completely spooled on the coordinator
-before it is forwarded, and the primary is written before the other two replicas because it arbitrates
-first-create-only. Forwarding chunks while they are still arriving would overlap those hops, but it
-changes the write protocol and needs its own failure testing, so I have not attempted it.
+A first version of the harness ran both clusters at once and measured about 2 to 4 s for both
+builds, because the older build's idle cluster kept re-hashing stored data and slowed whichever
+cluster was being timed. That is why the harness runs one at a time.
 
 ## Size and fan-out matrix
 
-`benchmarks/runMatrix.sh`. Five repetitions per point on a fresh 5-node cluster for each fan-out
-mode. With five samples, p95 and p99 are just the slowest runs, so read them as a rough ceiling.
+`benchmarks/runMatrix.sh`, recorded at commit `6749499`, five repetitions per point on a fresh
+five-node cluster per mode. This predates changes 3 and 4 above, striping, and TLS being on by
+default. With five samples, p95 is simply the slowest run. MB/s is computed with 1 MB = 2^20 bytes.
 
 | Operation | Size | Sequential mean | Parallel mean | Parallel p95 | Parallel MB/s |
 |---|---|---|---|---|---|
@@ -110,16 +64,14 @@ mode. With five samples, p95 and p99 are just the slowest runs, so read them as 
 | get | 10 MiB | 45.2 ms | 43.4 ms | 45 ms | 230.5 |
 | get | 100 MiB | 186.0 ms | 176.6 ms | 190 ms | 567.5 |
 
-Parallel fan-out only matters once a transfer is large: at 100 MiB it is 21% faster than writing the
-replicas one after another. At 1 KiB and 1 MiB the two are within the noise of five samples, and the
-1 KiB figure is dominated by process start-up and connection setup, not by data. `get` reads from one
-replica, so fan-out mode does not apply to it; the small differences between the two columns are
-noise.
+Parallel fan-out only matters for large transfers: at 100 MiB it was 21% faster than writing the
+replicas in turn. Small operations are dominated by process start-up and connection setup. `get`
+reads one replica, so the differences between its two columns are noise.
 
 ## Concurrency
 
-`benchmarks/runConcurrency.sh` starts N clients at once, each doing 1 create and 19 appends to its
-own file on a 5-node cluster.
+`benchmarks/runConcurrency.sh`, recorded at the same commit as the matrix. Each client does one
+create and 19 appends of 4 KiB to its own file on a five-node cluster.
 
 | Clients | Operations | Wall time | Operations/s |
 |---|---|---|---|
@@ -128,45 +80,96 @@ own file on a 5-node cluster.
 | 10 | 200 | 2810 ms | 71.2 |
 | 20 | 400 | 5637 ms | 71.0 |
 
-Throughput doubles from one client to five and then stays flat. All five nodes, the clients and the
-load generator share one machine, so it is the host that saturates here, not necessarily the
-design. Every operation also starts a new client process, so these figures include process start-up
-and a TCP connect and are a floor for what the nodes can do. `Stress.MixedWorkloadThousandsOfOps`
-drives a similar mix inside one process without that overhead.
+Throughput stops rising at five clients. Nodes, clients and the load generator share one host, and
+every operation starts a new process, so this does not show what the nodes alone can sustain.
 
-## In containers, with TLS on
+## Optional integrations
 
-One more data point, taken once and not part of the comparison above: ten Docker Compose nodes (each
-with its own network address, TLS and the cluster token on, which the numbers above leave off), and
-ten 100 MiB creates timed from inside the `node0` container.
+These describe the Cassandra index and the HDFS connector, not the storage engine. Raw data and an
+`environment.json` for each are in `benchmarks/integrations/`. Other work was running on the laptop,
+and the spread between runs shows it.
 
-| Samples | Min | Median | Max |
+### Cassandra index
+
+One `cassandra:5.0.5` node with replication factor 1 in Docker over loopback, `cassandra-driver`
+3.29.3 on Python 3.9, 16 buckets. Five runs, each in a new keyspace.
+
+| Measurement | Samples | Median | p95 | p99 |
+|---|---|---|---|---|
+| Create an entry | 1,000 | 3.9 ms | 16.1 ms | 30.1 ms |
+| Update an entry | 1,000 | 4.5 ms | 15.9 ms | 31.1 ms |
+| Look up one file by name | 1,000 | 1.1 ms | 6.4 ms | 11.1 ms |
+| List 100 files by prefix | 200 | 17.6 ms | 50.1 ms | 96.3 ms |
+
+| Concurrent lookup threads | Median ops/s | Min | Max |
 |---|---|---|---|
-| 10 | 402 ms | 487 ms | 759 ms |
+| 1 | 507 | 475 | 971 |
+| 4 | 1,577 | 1,143 | 2,387 |
+| 16 | 2,232 | 2,146 | 3,619 |
 
-This is still one physical machine, with Docker's virtual machine in between, ten nodes instead of
-five, and encryption on every hop, so it is not comparable with the loopback figures and says little
-about separate hosts. I have not run AegisFS across real machines.
+The threads share one Python process and driver session, so the interpreter limits them too.
+
+| Reconcile of 3,000 files | Median | Min | Max |
+|---|---|---|---|
+| Empty index | 4.5 s | 2.4 s | 8.8 s |
+| Nothing changed | 1.7 s | 0.6 s | 1.9 s |
+| One file changed | 1.1 s | 0.7 s | 5.6 s |
+
+The reconcile figures use an in-memory stand-in for the AegisFS inventory, so they measure the index
+side only.
+
+### HDFS transfers
+
+`apache/hadoop:3.4.1` with one NameNode and two DataNodes (replication 2), run under amd64 emulation
+on Apple silicon, and three AegisFS nodes with TLS, all in Docker on the same laptop. Each transfer
+is a separate `aegisfs-integrations` process, including the read-back and rename. The 1 MiB and
+10 MiB rows have 5 samples, the 100 MiB rows 3, and the small-file rows 5 runs of 30 files.
+
+| Operation | Median time | Median MB/s | Min to max |
+|---|---|---|---|
+| Export 100 MiB | 3.07 s | 34 | 2.63 to 3.39 s |
+| Import 100 MiB | 1.88 s | 56 | 1.87 to 2.34 s |
+| Export 10 MiB | 0.48 s | 22 | 0.43 to 0.74 s |
+| Import 10 MiB | 0.52 s | 20 | 0.41 to 0.74 s |
+| Export 1 MiB | 0.35 s | 3.0 | 0.29 to 0.75 s |
+| Import 1 MiB | 0.33 s | 3.2 | 0.32 to 0.45 s |
+| Export 30 x 1 KiB, one process per file | 15.4 s | | 8.5 to 33.3 s |
+| Import 30 x 1 KiB, one process per file | 14.6 s | | 8.9 to 32.7 s |
+| Export 30 x 1 KiB, one `export-all` | 12.7 s | | 4.2 to 14.6 s |
+| Import 30 x 1 KiB, one `import-all` | 7.5 s | | 4.2 to 13.9 s |
+
+The peak resident memory of the Python process was about 25 MiB at every size, which is consistent
+with streaming in fixed chunks. It excludes the `aegisfs` client process. An export stages one local
+copy of the file and an import two.
+
+For the same files, native `aegisfs create` and `get` took 0.41 s and 0.62 s at 100 MiB, 83 ms and
+85 ms at 10 MiB, and 40 ms and 42 ms at 1 MiB. The comparison is not like for like: an export reads
+the file from AegisFS, uploads it, reads it back from HDFS to hash it and renames it, and an import
+mirrors that.
 
 ## Limits of these results
 
-- One machine, loopback only. No latency between nodes, so the benefit of overlapping replica
-  transfers on a real network is understated. `benchmarks/runRemote.sh` can time a cluster that is
-  already running elsewhere, but I have not had separate machines to run it on.
-- Replicas share a host's CPU, memory and disk, so absolute MB/s says little about a real
-  deployment.
+- One machine, loopback only, with replicas sharing CPU, memory and disk. Nothing here was run
+  across separate hosts.
+- Small sample counts, especially in the matrix.
 - The macOS `fsync` behaviour described above.
-- Small sample counts in the matrix (five), larger in the comparison (forty per build).
-- Timings are wall-clock milliseconds, so anything under a few milliseconds is near the resolution.
 
 ## Reproducing
 
 ```
 cmake --build build
-benchmarks/runMatrix.sh                 # size and fan-out matrix -> benchmarks/results/
-benchmarks/runConcurrency.sh            # concurrency scaling
-python3 benchmarks/compareBuilds.py --a /path/to/old/aegisfs --b build/aegisfs
+benchmarks/runMatrix.sh          # overwrites benchmarks/results/raw.csv and summary.csv
+benchmarks/runConcurrency.sh     # overwrites benchmarks/results/concurrency.csv
+
+git worktree add ../aegisfs-before 5f95de8
+cmake -S ../aegisfs-before -B ../aegisfs-before/build -G Ninja -DAEGISFS_BUILD_TESTS=OFF
+cmake --build ../aegisfs-before/build
+python3 benchmarks/compareBuilds.py --a ../aegisfs-before/build/aegisfs --b build/aegisfs \
+  --rounds 4 --out comparison.csv
+
+tests/integrations/cassandra/benchIndex.py    # run from a venv with cassandra-driver, Cassandra up
+tests/integrations/hdfs/runBench.sh           # needs the stack from hdfsUp.sh
 ```
 
-To compare against an earlier commit, build it in a separate worktree
-(`git worktree add ../aegisfs-old 399efb5`) and pass its `build/aegisfs` as `--a`.
+`benchmarks/runRemote.sh <host:port>` times a cluster that is already running elsewhere. No results
+from it are recorded.

@@ -10,7 +10,7 @@
 #
 # This is a single Cassandra node for development and testing: replication factor 1, no TLS, no
 # authentication. For anything else, set the replication, TLS and password settings described in
-# docs/cassandraIntegration.md.
+# docs/integrations/cassandra.md.
 
 x-integrations: &integrations
   image: aegisfs-integrations:dev

@@ -1,183 +1,198 @@
-# AegisFS Architecture
+# Architecture
 
-AegisFS is a fault-tolerant distributed file system. It borrows replicated storage from HDFS and
-consistent-hash placement and gossip membership from Cassandra, and its command set follows HyDFS.
-It is not a port of any of them.
+AegisFS is one C++20 binary. `aegisfs serve` runs a storage node and every other subcommand is a
+client. There is no leader and no metadata server: each node keeps its own membership table, derives
+placement from it, and coordinates whichever requests clients send to it.
 
-## 1. Components
+The design borrows replicated storage from HDFS and ring placement and gossip from Cassandra, and the
+command set follows HyDFS. It shares no code with any of them.
 
-Every process is a single `aegisfs` binary that is simultaneously:
+## Components
+
+| Source | Responsibility |
+|---|---|
+| `src/cli.cpp` | argument handling, `serve`, client commands, interactive `shell` |
+| `src/client.cpp` | client library: retries, read-your-writes watermark, striping |
+| `src/node.cpp` | RPC server, request handlers, write and read coordination, gossip, failure detection, repair |
+| `src/ring.cpp`, `src/hash.cpp` | consistent-hash ring and SHA-256 |
+| `src/membership.cpp` | member table, merge rules, state timeouts, wire format |
+| `src/storage.cpp`, `src/manifest.cpp` | on-disk segments and per-file manifests |
+| `src/replication.cpp` | node-to-node RPCs (replicate, fetch manifest, fetch segment) |
+| `src/net.cpp`, `src/protocol.cpp` | TCP, TLS, token check, framing |
+| `src/metrics.cpp` | in-process counters and latency samples |
+| `src/partition.cpp` | fault injection used only by tests |
+
+## Placement
+
+`ringId(x)` is the top 64 bits of SHA-256(x). `std::hash` is not used because its value may differ
+between processes and builds, and every node has to agree on placement.
+
+Each node occupies 64 points on the ring, `ringId(nodeId + "#" + i)` for i from 0 to 63. A file's
+replicas are the first `rf` (default 3) distinct nodes at or after `ringId(name)`, wrapping around.
+The first of them is the primary. Only members that are currently `ALIVE` are on the ring, so a
+suspected node drops out of placement before it is declared failed.
+
+Finding the successors is a binary search. The node does, however, rebuild the sorted ring from its
+membership table for each placement decision, so the cost of a decision grows with the number of
+nodes. That is acceptable at the tens of nodes this has been run with.
+
+A node's id is `--id`, or a random `node-<16 hex>` if none is given, and is persisted in
+`<data>/node.id`. A file id is the 16-hex-digit ring id of its name.
+
+## Membership and failure detection
+
+Each member record holds a node id, address, incarnation number and state: `ALIVE`, `SUSPECT`,
+`FAILED` or `LEFT`.
+
+- **Gossip.** Every 300 ms a node sends its whole table to three random live peers and to its seeds,
+  and merges the table it gets back.
+- **Merge rules.** A higher incarnation wins. At equal incarnation the later state in the order
+  above wins, and the address is not changed. A node that hears it is suspected or failed raises its
+  own incarnation to refute the rumour.
+- **Probing.** Every probe interval (400 ms by default) a node pings each live peer. If the direct
+  ping fails it asks up to three other members to ping that peer. Only if none of them can reach it
+  is the peer marked `SUSPECT`, so a single broken link does not remove a healthy node.
+- **Timeouts.** `SUSPECT` becomes `FAILED` after `--suspect-ms` (1.5 s by default). `FAILED` and
+  `LEFT` records are dropped after 30 s.
+- **Leave.** `leave` marks the node `LEFT`, hands its files to their new replicas and gossips the
+  change. The process keeps running until stopped.
+
+The protocol is modelled on SWIM but is simpler: it pushes full tables rather than piggybacking
+updates, and probes every peer each round.
+
+## On-disk layout
 
 ```
-+---------------------------------------------------------------+
-|                         aegisfs node                          |
-|                                                               |
-|  CLI / client  ->  Client lib  ->  (TCP, length-framed RPC)   |
-|                                                               |
-|  RPC server (bounded thread pool)                             |
-|    ├─ Membership   (gossip + suspicion, incarnation numbers)  |
-|    ├─ Ring         (consistent hash, first-3 successors)      |
-|    ├─ Storage      (immutable base + append segments)         |
-|    ├─ Manifest     (per-file metadata, atomic commit)         |
-|    ├─ Replication  (coordinator-per-write, anti-entropy)      |
-|    └─ Metrics      (counters, latency histograms)             |
-+---------------------------------------------------------------+
-```
-
-- **Client lib** turns CLI commands into RPCs. Any node can serve as the entry point; it routes
-  to the correct replica set using its local ring + membership view.
-- **RPC server** accepts length-framed requests, dispatches on a bounded `ThreadPool`, and streams
-  large payloads in bounded chunks (default 1 MiB) so 100+ MiB files never load fully into RAM.
-- **Membership** maintains the cluster view and disseminates changes.
-- **Ring** maps node IDs and filenames onto a 64-bit identifier space derived from SHA-256.
-- **Storage/Manifest** own the crash-safe on-disk layout.
-- **Replication** coordinates writes across the 3 designated replicas and repairs divergence.
-
-## 2. Identifiers and the ring
-
-- `ringId(x) = top 64 bits of SHA-256(x)`. Used for both node IDs (`SHA-256(host:port:nodeuuid)`)
-  and file IDs (`SHA-256(filename)`). We **never** use `std::hash` for persistent cross-process IDs.
-- The ring is the sorted set of live member ring IDs. For a filename `f`, the **primary** is the
-  first node whose ring ID ≥ `ringId(f)` (wrapping around), and replicas are the next 2 **distinct**
-  successors. Default replication factor **RF = 3**.
-- Lookup is a binary search over the sorted ring: **O(log N)** per query, not O(1).
-
-## 3. On-disk layout
-
-```
-<dataDir>/
-  node.id                      # persisted node identity (uuid, ring id)
-  membership.snapshot          # last known membership (for faster rejoin)
+<data>/
+  node.id                      persisted node identity
   files/<fileId>/
-    manifest                   # binary manifest (atomic-committed)
-    base.seg                   # immutable base segment (from create)
-    append-<opid>.seg          # one immutable segment per committed append
-  journal/                     # write-ahead intent records for in-flight ops
-  tmp/                         # staging for fsync+rename; cleaned on recovery
+    manifest                   committed metadata
+    base.seg                   bytes from create
+    append-<opId>.seg          one segment per committed append
+  tmp/                         staging area
 ```
 
-### Manifest (per logical file)
-`filename, fileId, createOpId, version/epoch, [segment refs: {kind, opId, clientId,
-clientSeq, lamportTs, size, sha256}], replica_state`. Serialized with explicit length-prefixed
-fields and a trailing CRC; written to `tmp/` then `fsync`+`rename`d over the live manifest.
+Segments are immutable. The manifest lists each segment's kind, operation id, client id, client
+sequence, Lamport timestamp, size, SHA-256 and file name, followed by a SHA-256 of the manifest body.
 
-## 4. RPC protocol (length-framed, binary-safe)
+A segment or manifest is written under `tmp/`, fsynced, renamed into place, and the directory is
+fsynced. On restart, recovery empties `tmp/`, deletes file directories that have no manifest, and
+deletes segments the manifest does not reference. A crash before the manifest commit therefore leaves
+the file as it was. `StorageFixture.*` and the `CrashPoints` tests inject a crash at each step.
 
-Frame = `MAGIC(4) | VERSION(2) | TYPE(2) | HEADER_LEN(4) | HEADER | PAYLOAD_LEN(8) | PAYLOAD`.
+On macOS the directory flush uses `F_FULLFSYNC`, but file contents are flushed with plain `fsync`,
+which does not force them to the physical media there.
 
-- All integers little-endian, explicit bounds-checked on read. Max header/payload sizes enforced.
-- HEADER is a compact TLV of typed fields (ints, strings, bytes). PAYLOAD carries file bytes and is
-  streamed in `CHUNK` frames for large transfers.
-- Request types: `PING, MEMBERSHIP, CREATE, GET, APPEND, MERGE, LS, LISTSTORE, GET_FROM_REPLICA,
-  LIST_MEM_IDS, REPLICATE_PUT, REPLICATE_APPEND, FETCH_MANIFEST, FETCH_SEGMENT, ANTI_ENTROPY, STATUS`.
+## Wire protocol
 
-## 5. Write path (create / append)
-
-1. Client sends `CREATE`/`APPEND` to any node → that node is the **operation coordinator** (temporary,
-   per-op; not a cluster leader).
-2. Coordinator computes the 3 replicas from `ringId(filename)`.
-3. Coordinator assigns an **operation id** = `(clientId, clientSeq, lamportTs)`; `lamportTs` is a
-   monotonic logical clock advanced on every op the coordinator sees.
-4. Coordinator writes locally (if it is a replica) and sends `REPLICATE_*` to the other replicas,
-   each of which stages the segment (`tmp/`→fsync→rename) and commits its manifest.
-5. **Durability policy:** in a healthy cluster the op is acknowledged only after **all 3 replicas**
-   durably commit (so any 2 can fail and the data survives). If fewer than 3 replicas are reachable,
-   the op returns `DEGRADED` with the count that committed, and the caller decides (default CLI:
-   treat `DEGRADED` as a soft failure and retry). `DEGRADED` also covers a ring with fewer than
-   `rf` members, where fewer than three replicas exist to begin with.
-
-## 6. Read path (get / getFromReplica)
-
-- `get` reads from a replica and verifies SHA-256 of every segment. **Read-your-writes:** the client
-  tracks, per file, the highest `(clientSeq)` it has had acknowledged; `get` requires the serving
-  replica's manifest to include that op id (else it tries another replica, then blocks up to a bounded
-  timeout, then returns `STALE`).
-- `getFromReplica` returns one replica's exact local view with **no read-repair**, for comparison.
-
-## 7. Ordering and convergence
-
-- **Per-client order:** completed append A (lower `clientSeq`) always precedes later append B from the
-  same client on every replica, because segments are ordered by `(clientId, clientSeq)` within a
-  client and the client serializes its own appends (waits for ack before issuing the next).
-- **Cross-client order:** segments from different clients are totally ordered by
-  `(lamportTs, clientId, clientSeq)`, a deterministic tie-break, so once the cluster is quiescent
-  all replicas converge to the identical byte sequence.
-- **merge:** reconciles all reachable designated replicas to the union of committed segments in the
-  canonical order, then verifies every replica's reconstructed file has the same SHA-256. Returns
-  success only when all reachable designated replicas are byte-identical.
-- **Anti-entropy:** a periodic background task compares manifests between replicas (by op-id set and
-  per-segment checksum) and pulls missing segments or repairs corrupt ones without dropping any
-  acknowledged op. Every cycle it checks that each local segment file exists and has the recorded
-  size. Re-reading and re-hashing the bytes runs once per file every `--scrub-interval-ms`
-  (default five minutes), since doing it every cycle costs a full pass over everything stored.
-
-## 8. Membership and failure handling
-
-- Gossip-style dissemination of a member table `{node_id, addr, incarnation, state, heartbeat}` where
-  `state ∈ {ALIVE, SUSPECT, FAILED, LEFT}`. **Incarnation numbers** prevent stale messages from
-  resurrecting dead nodes; a node refutes a false SUSPECT by bumping its own incarnation.
-- Direct + indirect (SWIM-style) probing marks a node SUSPECT, then FAILED after a bounded window.
-- On FAILED: event-driven reconciliation recomputes replica sets; new successors pull missing data via
-  anti-entropy (re-replication). On JOIN: the new node pulls the ranges it now owns; old replicas are
-  deleted **only after** the new replica has verified the data (safe handoff).
-
-## 9. Concurrency
-
-- Bounded `ThreadPool` for RPC handling; streaming avoids large allocations.
-- Per-file locking (`shared_mutex` keyed by fileId), **no global cluster lock**. Manifest commits
-  are atomic; concurrent appends to the same file are serialized only at that file's granularity.
-
-## 10. Diagrams
-
-### Replica placement on the ring
-```mermaid
-graph LR
-  subgraph Ring[64-bit ring]
-    A[node A] --> B[node B] --> C[node C] --> D[node D] --> E[node E] --> A
-  end
-  F["ringId(file)"] -.->|first successor| C
-  C -->|replica 1| C
-  C -->|replica 2| D
-  C -->|replica 3| E
+```
+MAGIC "AGFS" (4) | VERSION (2) | TYPE (2) | HEADER_LEN (4) | HEADER | PAYLOAD_LEN (8) | PAYLOAD
 ```
 
-### Write path (create/append)
+Integers are little-endian. The header is a list of length-prefixed string key/value pairs, with
+numbers written as decimal text. Headers are limited to 16 MiB and payloads to 8 GiB. File payloads
+are streamed in 1 MiB chunks. Each connection carries one request and one reply.
+
+Message types are listed in `include/aegisfs/protocol.hpp`: client requests (create, append, get,
+merge, ls, listings, status, health, leave, metrics), node-to-node requests (membership, ping,
+ping-req, replicate, fetch manifest, fetch segment) and a generic reply.
+
+When a cluster token is configured it travels as the `auth` header on every request, and a node
+rejects a request with a missing or different token before reading its payload. TLS 1.2 or newer
+wraps the whole stream. [SECURITY.md](../SECURITY.md) describes what these do and do not protect.
+
+A node runs one accept thread, a pool of eight request threads with a bounded queue, and one thread
+each for gossip, failure detection and maintenance.
+
+## Writing
+
 ```mermaid
 sequenceDiagram
-  participant Cl as Client
-  participant Co as Coordinator (any node)
-  participant R1 as Replica 1 (primary)
-  participant R2 as Replica 2
-  participant R3 as Replica 3
-  Cl->>Co: CREATE/APPEND (streamed bytes)
-  Co->>Co: spool to tmp, SHA-256, assign opId + lamport
-  Co->>R1: REPLICATE (primary first; create arbitrates here)
-  R1-->>Co: OK / ALREADY_EXISTS
-  par fan-out (parallel or sequential)
-    Co->>R2: REPLICATE
-    Co->>R3: REPLICATE
-  end
-  R2-->>Co: OK
-  R3-->>Co: OK
-  Co-->>Cl: OK (all 3) / DEGRADED (<3)
+  participant C as Client
+  participant N as Coordinator (any node)
+  participant P as Primary
+  participant R as Other replicas
+  C->>N: CREATE with op id, streamed bytes
+  N->>N: spool to tmp/, hash, fsync, assign Lamport time
+  N->>P: replicate (first, arbitrates first create)
+  P-->>N: OK or ALREADY_EXISTS
+  N->>R: replicate in parallel
+  R-->>N: OK
+  N-->>C: OK, DEGRADED or an error
 ```
 
-### Membership state machine (per peer)
-```mermaid
-stateDiagram-v2
-  [*] --> ALIVE
-  ALIVE --> SUSPECT: probe fails
-  SUSPECT --> ALIVE: probe ok / higher incarnation
-  SUSPECT --> FAILED: suspect timeout
-  ALIVE --> LEFT: graceful leave
-  FAILED --> ALIVE: rejoin with higher incarnation
-  FAILED --> [*]: reaped after tombstone TTL
-  LEFT --> [*]: reaped after tombstone TTL
-```
+The coordinator exists only for the one request. It receives, writes and hashes the upload, using a
+second thread for hashing so the three overlap. If it is itself a replica it hard-links the spooled
+file into its store. Other replicas receive the segment, verify its SHA-256, and rename their own
+spooled copy into place before committing the manifest.
 
-## 11. Failure / consistency model (explicit)
+`create` writes the primary first, and the primary rejects a second base with a different operation
+id. If the primary write fails, nothing is sent to the other replicas.
 
-- **Guarantee:** a file with 3 healthy, durable replicas remains readable after ≤2 node failures.
-- **Not guaranteed:** availability during partitions that leave <1 reachable replica, or durability of
-  ops acknowledged as `DEGRADED`. Under partition AegisFS favors consistency (read-your-writes) over
-  availability for the partitioned minority. See `docs/tradeoffs.md`.
+`append` first reads the manifest from each reachable replica and takes the union. It returns
+`CONFLICT` if two replicas hold different bases, and otherwise assigns the next sequence number for
+the client and sends the segment to all replicas in parallel.
+
+| Reply | Meaning |
+|---|---|
+| `OK` | all `rf` designated replicas committed |
+| `DEGRADED` | at least one committed but fewer than `rf`, including when the ring has fewer than `rf` members |
+| `UNAVAILABLE` | none committed |
+
+The client retries network errors, timeouts, `UNAVAILABLE`, `DEGRADED` and `STALE`, three attempts
+with linear backoff, reusing the same operation id. A node applies an operation id at most once.
+Library users can change the attempts and backoff with `Client::setRetryPolicy()`.
+
+## Ordering and read-your-writes
+
+Segments are ordered by: base first, then Lamport timestamp, client id, client sequence and
+operation id. This is a total order, so replicas that hold the same operations reconstruct the same
+bytes. It follows Lamport time, not wall-clock time. See [Known limitations](../README.md#known-limitations)
+for the case where it does not preserve one client's order.
+
+A client records the highest sequence number the cluster has acknowledged to it for each file and
+sends it with `get`. The coordinator serves the read only from a replica whose manifest includes it,
+and otherwise answers `STALE`. `getQuorum` requires a majority of replicas to qualify and reads the
+one with the highest manifest version. Both watermarks and operation counters live in the `Client`
+object, so they do not outlive a CLI invocation.
+
+The serving replica verifies every segment checksum before it sends the first byte, so it reads each
+file twice, and it holds one segment at a time in memory while sending.
+
+## Convergence and repair
+
+`merge` takes the union of the reachable replicas' manifests, copies missing segments to each, then
+compares the SHA-256 of the reconstructed file on every replica. It returns `OK` only if they match,
+and `CONFLICT` otherwise.
+
+Each node's maintenance loop runs about once a second:
+
+- **Placement.** For every file it stores, it recomputes the replica set and pushes missing segments
+  to designated replicas. If it is no longer one of them, it deletes its copy once the others report
+  complete.
+- **Integrity.** It checks that each of its segments exists with the recorded size. Once per
+  `--scrub-interval-ms` (five minutes by default) it also re-reads and re-hashes the file's segments.
+  A missing or corrupt segment is fetched again from a peer.
+- **Anti-entropy.** It fetches the peers' manifests and pulls any operation it lacks.
+
+No global file index is involved. The cost is that each node asks the other replicas for a manifest
+for every file it stores, on every cycle.
+
+## Striping
+
+A client splits a file larger than `--stripe-mib` (256 MiB by default, 0 disables it) into chunk
+files named `<name>.stripe.<client>.<time>.<n>`. Each chunk is an ordinary file, so it is placed,
+replicated and repaired like any other. The real name holds a small index of the chunks, written
+last, so it is the commit point. A failed create can leave unreferenced chunks behind, and there is
+no delete command.
+
+The index's create operation id contains `#stripe#`. A `get` reply says `striped=1` and the client
+fetches up to four chunks at a time. A raw `append` to a striped file is refused, and the client then
+uploads the new data as chunks and appends their names to the index. `ls`, `merge` and
+`getFromReplica` act on the index only.
+
+## Concurrency
+
+A per-file mutex covers the short local step of applying a segment and committing the manifest. No
+lock is held across a network call, so two coordinators writing to each other cannot deadlock. There
+is no cluster-wide lock.

@@ -1,125 +1,94 @@
-# Integration architecture
+# Optional integrations
 
-AegisFS has two optional integrations: a Cassandra metadata index and an HDFS import/export
-connector. Neither is part of the storage engine. This page explains where they sit, what each one
-does and does not do, and how the rest of the system is kept independent of them.
+Two tools connect AegisFS to systems people already run: a Cassandra index of file metadata and a
+connector that copies files to and from HDFS. Neither is part of the storage engine. No C++ code
+calls either one, and the cluster behaves the same without them. The only C++ support they needed is
+the read-only `members` command.
 
-## What AegisFS does by itself
+- [Cassandra metadata index](cassandra.md)
+- [HDFS import and export](hdfs.md)
 
-The C++ storage nodes own everything that decides whether data is safe:
+## How they fit
 
-- placement on the consistent-hash ring, with three replicas per file
-- membership and failure detection
-- immutable segments, checksummed manifests, and the fsync-then-rename write path
-- append ordering, idempotent retries, read-your-writes, and quorum reads
-- repair: anti-entropy, scrubbing, and re-replication after a failure
-- TLS and the cluster token
-- client-side striping of large files
-
-None of that code calls Cassandra or HDFS, and none of it changes when they are absent. The only
-C++ change made for the integrations is one read-only client command, `members`, which prints the
-membership table with each node's address as `key=value` lines so an outside tool can visit every
-node. `listMemIds` keeps its original layout.
-
-## Where the integrations sit
+Both are one Python package, `extensions/integrations/`, run through the `aegisfs-integrations`
+launcher. They reach the cluster only by running the `aegisfs` client, so TLS, the cluster token,
+retries and striping behave as they do for any other client. They never read segments or manifests.
 
 ```
-   people, scripts, the REST gateway
-                 |
-                 v
-   +-----------------------------+
-   |  aegisfs client (CLI)       |  TLS, cluster token, retries, striping
-   +-----------------------------+
-          |                 ^
-          v                 |  reads and writes only through the client
-   AegisFS storage nodes    |
-   (the source of truth)    |
-                            |
-        +-------------------+--------------------+
-        |                                        |
-   Cassandra index                          HDFS connector
-   (what AegisFS reported)                  (WebHDFS import / export)
-        |                                        |
-     Cassandra                                 HDFS
+        +-------------------------+
+        |   AegisFS storage nodes |   source of truth
+        +------------+------------+
+                     |  aegisfs client
+          +----------+-----------+
+          |                      |
+   Cassandra indexer       HDFS connector
+          |                      |
+      Cassandra            WebHDFS (HDFS)
 ```
 
-Both integrations are one Python package, `extensions/integrations/`, started with
-`aegisfs-integrations`. They reach the cluster only by running the same `aegisfs` client binary a
-person would run. That is deliberate:
+**Cassandra** records what AegisFS reported about a file, with the time it was observed. It is not
+authoritative. The REST gateway can queue "this file changed" events in a local spool, and
+`index --reconcile` scans the nodes, which also finds files written directly with the CLI. If
+Cassandra is down, work waits in the spool.
 
-- TLS, the cluster token, retries and striping behave exactly as the cluster defines them. A striped
-  file is read back whole by `get`, and a large `create` is striped by the client's own setting.
-  The integrations never read segments or manifests directly and have no second striping format.
-- Nothing in the storage nodes has to know an integration exists.
+**HDFS** is an external system you copy files to or from, not a storage tier or a replica. Both
+directions read the copy back and compare SHA-256 before reporting success. Transfers never delete
+the source or overwrite a destination unless `--overwrite` is given.
 
-## The Cassandra index
+## Security rules shared by both
 
-Role: remember what AegisFS reported about each file, so names can be listed and found without
-asking every storage node.
+- Each integration refuses an unprotected connection unless a development switch is set by name.
+  Nothing falls back to plaintext.
+- Passwords and tokens are read from files named in the configuration, never from flags or inline
+  JSON. Error messages are redacted.
+- The Cassandra spool files are created with mode 0600 and the HDFS journal directory with 0700.
+  They hold file names and hashes, not file contents or credentials.
 
-Cassandra is **not** the source of truth. Every entry is an observation with an `observed_at`
-time. A lookup that succeeds in Cassandra never overrides an AegisFS error: `find --confirm` and
-`show --confirm` ask AegisFS as well and report any disagreement, and reads and writes of the files
-themselves never go through the index.
-
-The index only holds what AegisFS can verify. `listStore` reports a name, id, size, version and
-segment count per node, and `ls` reports replica placement. Neither reports a checksum, so a SHA-256
-is stored only when the indexer actually read the file and hashed it, together with when it did. A
-striped file's logical size is unknown until it is read, and the index says so instead of reporting
-the size of the small index object. Details are in [cassandraIntegration.md](cassandraIntegration.md).
-
-How it stays in step:
-
-1. A file operation completes in AegisFS.
-2. The REST gateway can queue a "this file changed" line in a local spool (off unless
-   `AEGISFS_INT_CASSANDRA_SPOOL_DIR` is set). The hook only appends to a file and ignores its own
-   errors, so it cannot change what the client is told.
-3. The indexer later looks the file up in AegisFS and writes what it actually sees.
-4. `index --reconcile` scans every alive node's inventory, adds missing entries, updates changed ones
-   and marks entries whose file has gone as stale instead of dropping them. This also finds files
-   written directly with the CLI, which no hook would see.
-5. If Cassandra is unreachable, work stays in the spool and is replayed later. The original file
-   operation never depends on any of this.
-
-Writes use the AegisFS file version as an ordering guard, so a repeated or late event cannot replace
-a newer observation.
-
-## The HDFS connector
-
-Role: copy a file between AegisFS and an existing HDFS cluster, over the WebHDFS REST API, and prove
-the copy is identical.
-
-HDFS is **not** a storage tier, a replica, or a backup managed by AegisFS. It is an external system
-the user chooses to copy files to or from. AegisFS does not read from HDFS to serve a request, and a
-file in HDFS has no effect on a file's replication or repair in AegisFS.
-
-- **Export** reads the whole logical file with `aegisfs get`, uploads it to a temporary name in HDFS,
-  reads it back from HDFS and compares SHA-256, and only then renames it into place.
-- **Import** streams the HDFS file to local disk while hashing it, creates it in AegisFS through the
-  normal client (so replication, durability and striping apply as for any other write), then reads it
-  back through AegisFS and compares.
-- Nothing is overwritten unless `--overwrite` is given, and neither the AegisFS file nor the HDFS
-  file is ever deleted by a transfer. The only thing the connector deletes is its own temporary file.
-
-WebHDFS sends a write to the NameNode, which answers with a redirect to a DataNode, and the data
-then goes to the DataNode. The connector follows that redirect itself so it can check it first. See
-[hdfsIntegration.md](hdfsIntegration.md) and [integrationSecurity.md](integrationSecurity.md).
+The connection options are described in [cassandra.md](cassandra.md#configuration) and
+[hdfs.md](hdfs.md#security-options). Cluster security is covered in
+[SECURITY.md](../../SECURITY.md).
 
 ## Independence, and how it is checked
 
-| Claim | How it is enforced | What checks it |
-| --- | --- | --- |
-| The core cluster runs without either integration. | Neither is imported or called by the C++ code. The Compose services are in the `cassandra` and `hdfs` profiles. | `scripts/integrations/checkProfiles.sh` shows the merged Compose files list exactly the core services when no profile is chosen. The core tests and cluster checks run with no integration installed. |
-| AegisFS reads and writes keep working when Cassandra is down. | The gateway hook only appends to a local file. The indexer is a separate process. | A live test stops the Cassandra container and does an AegisFS `create` and `get`. |
-| AegisFS reads and writes keep working when HDFS is down. | Only the `hdfs` commands talk to HDFS. | A live test makes HDFS unreachable and does an AegisFS `create` and `get`. |
-| Each integration can be on or off on its own. | Separate profiles, separate Python areas, separate configuration sections. | The profile check, and each live suite running without the other. |
-| A missing Python driver or service stops only its own area. | An unavailable area reports `unavailable` and exits 3; the other area still loads. | `testCli.py` and the area unit tests. |
+| Claim | Check |
+|---|---|
+| A plain `docker compose up` starts only the core services | `scripts/integrations/checkProfiles.sh` |
+| AegisFS reads and writes keep working while Cassandra is stopped | `testCassandraLive.py` |
+| AegisFS reads and writes keep working while HDFS is unreachable | `tests/integrations/hdfs/testLive.py` |
+| A missing driver or service disables only its own area, which exits with code 3 | `testCli.py` and the area unit tests |
 
-## What the integrations do not do
+## Tests
 
-- They do not make AegisFS faster or more durable, and they are not part of the benchmarks that
-  describe the storage engine.
-- They do not add a coordinator. Nothing in the cluster waits for either of them.
-- The Cassandra index can lag behind AegisFS, and a reconcile is a scan, not a stream.
-- The HDFS connector copies whole files only: no incremental sync, no deletes, no metadata carry-over.
-- Neither has been run across separate physical machines. Everything here was measured on one laptop.
+| Suite | Location | Needs |
+|---|---|---|
+| Shared configuration, client wrapper and command dispatch | `tests/integrations/shared/` | nothing |
+| HDFS connector against an in-process fake WebHDFS server | `testWebHdfs`, `testTransfer`, `testTls` | `openssl` for the TLS tests |
+| Cassandra index against an in-memory back end | `testCassandra{Model,Store,Spool,Schema,Indexer}` | `cassandra-driver` |
+| Gateway, including the index hook | `tests/extensions/testExtensions.py` | nothing |
+| Cassandra live, plaintext and secure | `tests/integrations/cassandra/runLive.sh` | Docker |
+| HDFS live, including both DataNodes killed during an export | `tests/integrations/hdfs/runLive.sh` | Docker |
+
+```
+python3 -m unittest discover -s tests/integrations/shared -p "test*.py"
+(cd tests/integrations/hdfs && python3 -m unittest testWebHdfs testTransfer testTls)
+python3 -m venv .venv && .venv/bin/pip install -r extensions/integrations/requirements.txt
+(cd tests/integrations/cassandra && ../../../.venv/bin/python -m unittest testCassandraModel \
+  testCassandraStore testCassandraSpool testCassandraSchema testCassandraIndexer)
+```
+
+A live test skips when its service is unreachable, and fails instead when
+`AEGISFS_INT_CASSANDRA_LIVE=1` or `AEGISFS_INT_HDFS_LIVE=1` is set, which the `runLive.sh` scripts
+do. The scripts never delete Docker volumes. `cassandraDown.sh --purge` and `hdfsDown.sh --purge`
+do. The HDFS live tests run inside the Compose network because WebHDFS redirects to DataNode host
+names that resolve only there.
+
+`.github/workflows/integrations.yml` runs separately from the core workflow, with jobs for the unit
+tests (plus the profile check and a scan for committed private keys), live Cassandra and live HDFS.
+
+## Not covered
+
+- Separate physical machines. All measurements are from one laptop; see
+  [benchmarks](../benchmarks.md#optional-integrations).
+- A Cassandra cluster of more than one node, mutual TLS to Cassandra, or restricted Cassandra roles.
+- Kerberos, which is not supported, and HDFS delegation tokens or HTTPS against a real cluster.
+- HDFS federation, high-availability failover, encryption zones and erasure coding.

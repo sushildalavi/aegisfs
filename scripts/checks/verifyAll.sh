@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs everything that should pass before a change is merged: a clean build, the full ctest suite,
+# Runs the checks that should pass before a change is merged: a build, the full ctest suite,
 # the Python tests, the smoke test, the 10-node demo, the real-process reliability run, and a check
 # that the recorded benchmark data is present. Exits nonzero if any step fails.
 set -uo pipefail

@@ -92,7 +92,7 @@ This is implemented as read, merge in Python, then a lightweight transaction:
 writer got in first, the row is read again and merged again, up to 8 times. CQL cannot compare a
 pair of columns in one condition, which is why the comparison is done on the read value and the
 transaction only guards "nobody changed it since". One consequence: a write costs a read plus a
-transaction (about 4 ms median on the benchmark machine below).
+transaction (see [benchmarks](../benchmarks.md#optional-integrations) for timings).
 
 - A repeated event gives the same row, reported as `unchanged`.
 - Arrival order does not matter: a unit test applies every permutation of a set of events and
@@ -267,7 +267,8 @@ scripts/integrations/cassandraUp.sh --indexer    # also starts the indexer servi
 scripts/integrations/cassandraDown.sh            # stop; data volume kept
 scripts/integrations/cassandraDown.sh --purge    # stop and delete the data and the spool volume
 
-# From a shell (venv with cassandra-driver)
+# From a shell (venv with cassandra-driver). The aegisfs client needs its credentials,
+# for example `source scripts/devCreds.sh` for a local cluster.
 python3 -m venv extensions/integrations/.venv-cass
 extensions/integrations/.venv-cass/bin/pip install -r extensions/integrations/requirements.txt
 export AEGISFS_INT_CASSANDRA_TLS=false AEGISFS_INT_CASSANDRA_ALLOW_INSECURE=true   # dev container
@@ -292,7 +293,7 @@ docker compose -p aegis-cass -f deploy/docker/compose.yaml -f deploy/docker/comp
 
 The indexer service reaches AegisFS at `node0:9100` with the TLS CA and token from
 `${AEGISFS_CREDS_DIR:-.dev}`; it needs the core AegisFS stack running to do anything useful, and
-keeps retrying until it is. The plain `cassandra` service has no TLS and no login; see Limitations. The `cassandra-secure` service (Tests, above) is for testing TLS and login.
+keeps retrying until it is. The plain `cassandra` service has no TLS and no login; see Limitations. The `cassandra-secure` service (see Tests below) is for testing TLS and login.
 
 ## Tests
 
@@ -338,14 +339,8 @@ required does not fall back to plaintext, and that `tls=false` is a configuratio
 `allow_insecure=true`, both in `Settings` and on the command line.
 
 `tests/integrations/cassandra/benchIndex.py` records latency, throughput and reconcile time as raw
-CSV in `benchmarks/integrations/cassandra/`, with the hardware and versions in `environment.json`.
-These are one laptop (Apple M3, 8 cores) talking to one Cassandra node in Docker over loopback with
-replication factor 1; they say nothing about a real cluster, and other work was running on the
-machine. In the committed run (5 runs, a fresh keyspace each): creating an entry took a median of
-3.9 ms (p95 16 ms, 1,000 samples), a lookup by name 1.1 ms (p95 6.4 ms, 1,000 samples), a 100-row
-prefix listing 17.6 ms (p95 50 ms, 200 samples), concurrent lookups reached about 500 per second with
-1 client, 1,600 with 4 and 2,200 with 16, and reconciling a 3,000-file inventory took a median of
-4.5 s the first time, 1.7 s with nothing changed and 1.1 s with one change.
+CSV in `benchmarks/integrations/cassandra/`. Results and their conditions are in
+[benchmarks](../benchmarks.md#optional-integrations).
 
 ## Limitations
 
@@ -357,8 +352,7 @@ prefix listing 17.6 ms (p95 50 ms, 200 samples), concurrent lookups reached abou
   listing-based assumption (see above).
 - `striped` is inferred from chunk files and stays unknown for a file without them until it is read.
 - Reconcile reads the whole inventory and the whole index; it is meant for thousands to low
-  millions of files, not for continuous use on a huge namespace. The no-change reconcile of 3,000
-  files took about 1.7 s in the benchmark.
+  millions of files, not for continuous use on a huge namespace.
 - `list` and `status --full-count` walk the namespace tree and read all buckets; `list` has no
   paging beyond `--limit`. `find --striped` and `stale` return at most `--limit` entries (per attribute for `stale`).
 - Attribute tables are updated after the main row (see above) and a reconcile does not repair

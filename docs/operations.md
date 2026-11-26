@@ -1,103 +1,152 @@
-# AegisFS Operations Runbook
+# Operations
 
-## Bootstrapping a cluster
-Process-local (no Docker):
+## Local cluster
+
 ```
-scripts/cluster.sh start 10      # nodes on 127.0.0.1:9100..9109, node0 is the seed
+scripts/cluster.sh start 10      # 127.0.0.1:9100-9109, node0 is the seed
 scripts/cluster.sh status
+scripts/cluster.sh kill 3        # SIGKILL one node
+scripts/cluster.sh restart 3     # relaunch it with its data directory
 scripts/cluster.sh stop
 ```
-`cluster.sh` sources `scripts/devCreds.sh`, which creates a throwaway CA, node certificate and
-cluster token in `.dev/` the first time. To run your own `aegisfs` commands against that cluster in
-the same shell, `source scripts/devCreds.sh` first.
 
-A node is just one process. TLS and a cluster token are required, so a real node looks like:
+`AEGISFS_BASE_PORT`, `AEGISFS_RUN_DIR` (default `run/`) and `AEGISFS_BIN` (default `build/aegisfs`)
+change the ports, data location and binary. Node logs are `run/node<N>.log`.
+
+The script sources `scripts/devCreds.sh`, which creates a throwaway CA, a node certificate and a
+cluster token in `.dev/` the first time. To run your own commands against the cluster, source it in
+the same shell:
+
 ```
-aegisfs serve --data /var/lib/aegisfs/n0 --host 0.0.0.0 --port 9100 --id n0 \
+source scripts/devCreds.sh
+build/aegisfs --entry 127.0.0.1:9100 listMemIds
+```
+
+## Running nodes by hand
+
+TLS and a cluster token are required unless `--insecure` is given. Certificates and keys are PEM
+files.
+
+```
+aegisfs serve --data /var/lib/aegisfs/n0 --host 0.0.0.0 --advertise host-a --port 9100 --id n0 \
   --tls-cert node.pem --tls-key node.key --tls-ca ca.pem --token-file token
-aegisfs serve ... --port 9101 --id n1 --seeds <seedhost>:9100
-aegisfs --tls-ca ca.pem --token-file token --entry <seedhost>:9100 listMemIds
+aegisfs serve ... --advertise host-b --id n1 --seeds host-a:9100
+aegisfs --tls-ca ca.pem --token-file token --entry host-a:9100 listMemIds
 ```
-`--insecure` skips both for local experiments. The certificate must be valid for the address other
-nodes and clients use to reach the node. See `SECURITY.md` for what the token does and does not
-protect.
-Flags: `--advertise <name>` (the address peers use to reach this node, when it differs from the
-bind address, as in containers), `--rf <k>` (default 3), `--parallel 0|1` (replica fan-out; default 1),
-`--probe-interval-ms <n>` (failure-detector probe period and timeout, default 400),
-`--suspect-ms <n>` (how long a suspected node has to refute before it is marked failed, default
-1500) and `--indirect-probes <n>` (default 3). The defaults suit loopback; the compose file uses 1000
-and 6000 because probes over TLS on a real network stack are slower.
-`--scrub-interval-ms <n>` (how often stored segments are fully re-hashed; default 300000).
-Client flag: `--stripe-mib <n>` splits files bigger than n MiB across the ring (default 256, 0 = off).
 
-Docker (the header of the compose file says how to create the certificates first; the smoke test
-does it for you):
+The certificate must name the address that peers and clients use, which is the `--advertise` value
+when one is given. `--host` has to be an IPv4 address: any other value binds every interface.
+
+### Node options
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--data` | `./data` | data directory |
+| `--host` | `127.0.0.1` | IPv4 bind address |
+| `--advertise` | bind address | address announced to peers |
+| `--port` | 0 (ephemeral) | listen port |
+| `--id` | random | node id, used only the first time; afterwards `node.id` wins |
+| `--seeds` | none | comma-separated `host:port` list to join through |
+| `--rf` | 3 | replication factor; give every node the same value |
+| `--parallel` | 1 | 0 sends replicas one at a time |
+| `--probe-interval-ms` | 400 | probe period and timeout |
+| `--suspect-ms` | 1500 | time to refute a suspicion before `FAILED` |
+| `--indirect-probes` | 3 | helpers asked before suspecting a peer |
+| `--scrub-interval-ms` | 300000 | full re-hash period; 0 re-hashes on every maintenance cycle |
+
+The probe defaults suit loopback. The Compose cluster uses 1000 ms and 6000 ms, because a probe that
+includes a TLS handshake sometimes exceeded the defaults and got healthy nodes declared failed.
+
+### Credentials
+
+| Flag | Environment variable | Used by |
+|---|---|---|
+| `--tls-cert`, `--tls-key` | `AEGISFS_TLS_CERT`, `AEGISFS_TLS_KEY` | nodes |
+| `--tls-ca` | `AEGISFS_TLS_CA` | nodes and clients |
+| `--token-file` | `AEGISFS_TOKEN_FILE` (or the token itself in `AEGISFS_CLUSTER_TOKEN`) | nodes and clients |
+| `--tls-client-cert`, `--tls-client-key` | `AEGISFS_TLS_CLIENT_CERT`, `AEGISFS_TLS_CLIENT_KEY` | clients, for mutual TLS |
+| `--tls-require-client` | none | nodes, to require client certificates |
+| `--insecure` | `AEGISFS_INSECURE=1` | turns TLS and the token check off |
+
+## Inspection
+
 ```
+aegisfs --entry <host:port> status          # node id, alive count, file count, Lamport clock
+aegisfs --entry <host:port> health
+aegisfs --entry <host:port> listMemIds      # ring id, node, state, incarnation
+aegisfs --entry <host:port> members         # the same with addresses, as key=value lines
+aegisfs --entry <host:port> ls <name>       # file id, designated replicas, which of them hold it
+aegisfs --entry <host:port> listStore       # files stored on that node
+aegisfs --entry <host:port> metrics         # counters and latency percentiles of that node
+scripts/checks/verifyIntegrity.sh <host:port> <name>   # compare every replica's SHA-256
+```
+
+Counters include `rpc.accepted`, `rpc.unauthorized`, `replicatePut`, `replicateAppend`,
+`handoffDelete`, `antiEntropyRepair` and `gracefulLeave`. Latencies are recorded for `create`,
+`append`, `get` and `merge` on the coordinating node, in microseconds. Each keeps at most the first
+100,000 samples since the process started, so the percentiles stop moving after that.
+
+## Failed and rejoining nodes
+
+1. Confirm the state with `listMemIds`.
+2. Repair is automatic. Check it with `ls <name>`: the designated replicas should all be live and
+   show `present=yes`. `getFromReplica` reads one replica's copy for comparison.
+3. Restart the node with the same data directory to bring it back.
+
+To remove a node deliberately, send it `leave`, wait until `listStore` on it is empty, then stop it.
+
+## Docker Compose
+
+`deploy/docker/compose.yaml` runs ten nodes, the REST gateway, the metrics exporter, Prometheus and
+Grafana. Make credentials that name every node first:
+
+```
+AEGISFS_DEV_SANS="$(printf 'DNS:node%s,' $(seq 0 9) | sed 's/,$//')" scripts/devCreds.sh >/dev/null
 docker compose -f deploy/docker/compose.yaml up -d --build
 docker compose -f deploy/docker/compose.yaml exec node0 aegisfs --entry node0:9100 listMemIds
+docker compose -f deploy/docker/compose.yaml down        # add -v to delete the node volumes
 ```
 
-## Health & inspection
-```
-aegisfs --entry <host:port> status          # node id, alive count, file count, lamport clock
-aegisfs --entry <host:port> health          # liveness ping
-aegisfs --entry <host:port> listMemIds    # ring id | node | state | incarnation
-aegisfs --entry <host:port> ls <name>       # file id + 3 designated replicas
-aegisfs --entry <host:port> listStore       # files stored locally on that node
-```
+If `.dev/` already holds a certificate without those names, remove it or point `AEGISFS_DEV_DIR` and
+`AEGISFS_CREDS_DIR` at a new directory.
 
-## Recovering a failed node
-1. Confirm it is down: `scripts/cluster.sh status` or `listMemIds` (shows `FAILED`).
-2. Re-replication is automatic: surviving replicas push missing segments to the new successor; this
-   is driven by `reconcilePlacement()` on the maintenance loop (default every ~1s). Verify with
-   `ls <name>` + `getFromReplica <newaddr> <name> /tmp/x` and compare SHA-256.
-3. To bring the original node back with its data intact:
-   `scripts/cluster.sh restart <idx>` (process-local). It rejoins and reconciles stale state.
+This file publishes its ports on all host interfaces and sets the gateway token to `change-me`.
+Edit both before using it anywhere other than a private machine. See [SECURITY.md](../SECURITY.md).
 
-## Monitoring repair / rebalance
-- After a failure or a join, watch `ls <name>`, the 3 replica addresses should settle onto live
-  nodes within a few seconds.
-- `listStore` on a node that left the replica set should eventually show the file **gone** (safe
-  handoff deletes a local copy only after the new replicas confirm they have the data).
-- Counters are tracked in-process (`metrics`): `replicatePut`, `replicateAppend`, `handoffDelete`, `antiEntropyRepair`.
+`scripts/checks/composeSmokeTest.sh` and `scripts/checks/networkFaultTest.sh` start this stack with
+their own credentials in `.dev-compose/` and finish with `docker compose down -v`, which deletes the
+volumes of the `aegisfs` Compose project. Set `COMPOSE_PROJECT_NAME` to keep your own cluster apart.
 
-## Cleaning volumes
-```
-scripts/cluster.sh stop
-rm -rf run/                 # process-local data dirs
-# Docker:
-docker compose -f deploy/docker/compose.yaml down -v      # removes node volumes
-```
+## REST gateway and metrics
+
+`extensions/gateway/gateway.py` is a standard-library HTTP server that runs the `aegisfs` binary for
+each request.
+
+| Request | Action |
+|---|---|
+| `GET /health`, `GET /status`, `GET /metrics` | node health, status and counters as JSON |
+| `GET /files/{name}` | read a file |
+| `PUT /files/{name}` | create |
+| `POST /files/{name}` | append |
+
+It reads `AEGISFS_BIN`, `AEGISFS_ENTRY`, `GATEWAY_HOST` (default `0.0.0.0`), `GATEWAY_PORT` (8080)
+and the client credential variables above. If `AEGISFS_AUTH_TOKEN` is set, requests need
+`Authorization: Bearer <token>`; if it is unset, the gateway accepts every request. It holds each
+upload and download in memory, serves plain HTTP, and answers any failed write with status 409.
+
+`extensions/metrics/exporter.py` serves the entry node's metrics at `/metrics` (port 9108, or
+`EXPORTER_PORT`) in Prometheus text format, for example `aegisfs_lat_create_p95Us`. It covers one
+node. The Compose file runs Prometheus against it. Grafana starts empty: add the Prometheus data
+source and import `extensions/metrics/grafana/dashboard.json`.
 
 ## Troubleshooting
+
 | Symptom | Likely cause | Action |
-|---------|--------------|--------|
-| `NETWORK_ERROR cannot reach entry node` | wrong `--entry` or node down | check `scripts/cluster.sh status`, logs in `run/nodeN.log` |
-| `create` returns `DEGRADED` | fewer than 3 replicas reachable, or fewer than 3 nodes in the ring | restore nodes; retry; data is on `committed` replicas |
-| `get` returns `STALE` | no replica meets read-your-writes watermark yet | retry; ensure the writing client's appends were acknowledged |
-| `merge`/`append` returns `CONFLICT` | two replicas hold different "first" bases for the same file (usually from a coordinator writing through a stale membership view during a partition or rapid join/leave) | not auto-resolved; inspect both bases with `getFromReplica`, decide which is authoritative, and manually repair the losing replica |
-| node "listening" but refused | stale process / port in use | `pkill -f "aegisfs serve"`, remove `run/`, restart |
-
-## Reproducible tests
-```
-ctest --test-dir build --output-on-failure        # full C++ suite
-scripts/checks/smokeTest.sh                              # 3-node e2e
-scripts/demo.sh                                    # 10-node demo + fault injection
-scripts/checks/reliabilityTest.sh                        # real-process two-failure + malformed frame
-benchmarks/runMatrix.sh                         # latency/throughput
-scripts/checks/verifyAll.sh               # full acceptance gate
-```
-
-## Checking replica integrity by hand
-```
-scripts/checks/verifyIntegrity.sh <entry host:port> <name>   # compares all replicas' SHA-256 for one file
-```
-
-## Data layout on disk (per node `--data` dir)
-```
-node.id                      persisted identity
-files/<fileId>/manifest     atomically-committed metadata (checksummed)
-files/<fileId>/base.seg     immutable base segment
-files/<fileId>/append-*.seg one immutable segment per committed append
-tmp/                         staging for fsync+rename (cleaned on recovery)
-```
+|---|---|---|
+| `NETWORK_ERROR cannot reach entry node` | wrong `--entry`, node down, or TLS names do not match | check `scripts/cluster.sh status` and the node log |
+| `UNAUTHORIZED` | token missing or different | use the cluster's token file |
+| `create` returns `DEGRADED` | fewer than three replicas committed | restore nodes and check `ls <name>` |
+| `create` returns `CHECKSUM_MISMATCH` | a retried create after a partial or lost reply, see [Known limitations](../README.md#known-limitations) | check `ls <name>`; the file may already exist |
+| `get` returns `STALE` | no replica has this client's latest write yet | retry |
+| `merge` or `append` returns `CONFLICT` | two replicas hold different base segments | compare with `getFromReplica` and repair by hand |
+| a node fails to start | port in use, or unreadable certificate files | find the process holding the port |
