@@ -11,8 +11,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from .errors import SchemaError, StoreUnavailable
-from .model import (Observation, ROOT_NAMESPACE, ancestors_of, attrs_of, merge, namespace_of,
-                    utcnow_ms)
+from .model import ROOT_NAMESPACE, ancestors_of, attrs_of, merge, namespace_of
 
 MAX_CAS_ATTEMPTS = 8
 ATTRS = ("striped=true", "status=stale", "status=incomplete")

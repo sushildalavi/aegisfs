@@ -10,7 +10,7 @@ import os
 import re
 from dataclasses import dataclass
 
-from .errors import SchemaError, StoreUnavailable
+from .errors import SchemaError
 from .model import utcnow_ms
 
 _NAME = re.compile(r"^(\d{3,})_([A-Za-z0-9_]+)\.cql$")

@@ -1,16 +1,15 @@
 """`aegisfs-integrations cassandra ...` sub-commands."""
-import json
+import argparse
 import time
 
 from ..aegisfsClient import AegisError
 from ..cli import CommandFailed, EXIT_FAILED, EXIT_OK, IntegrationUnavailable, emit
-from ..config import ConfigError
 from . import indexer, queries, schema
 from .errors import DriverMissing, SchemaError, SecurityError, StoreUnavailable
 from .model import ObservationError, utcnow_ms
 from .settings import Settings
 from .spool import Spool
-from .store import ATTRS, IndexStore
+from .store import IndexStore
 
 CONNECTION_FLAGS = (
     ("--contact-points", "contact_points", "comma separated Cassandra hosts"),
@@ -45,7 +44,7 @@ def register(areas):
     mode.add_argument("--watch", type=float, metavar="SECONDS", help="drain every SECONDS until stopped")
     p.add_argument("--reconcile-every", type=float, default=0, metavar="SECONDS",
                    help="with --watch, also reconcile this often (0 = never)")
-    p.add_argument("--iterations", type=int, default=0, help=argparse_suppress())
+    p.add_argument("--iterations", type=int, default=0, help=argparse.SUPPRESS)
     p.add_argument("--verify-checksums", action="store_true",
                    help="read files from AegisFS and record their SHA-256")
     p.add_argument("--max-bytes", type=int, help="with --verify-checksums, skip files larger than this")
@@ -65,11 +64,6 @@ def register(areas):
     add_confirm(p)
 
 
-def argparse_suppress():
-    import argparse
-    return argparse.SUPPRESS
-
-
 def add_confirm(p):
     p.add_argument("--confirm", action="store_true", help="also ask AegisFS now and report any disagreement")
     p.add_argument("--read", action="store_true",
@@ -87,10 +81,7 @@ def _overrides(args):
 
 
 def settings_for(args, cfg):
-    try:
-        return Settings.from_config(cfg, _overrides(args))
-    except ConfigError:
-        raise
+    return Settings.from_config(cfg, _overrides(args))
 
 
 def open_store(settings):
@@ -114,10 +105,6 @@ def try_open_store(settings):
         return None
     except SchemaError as exc:
         raise CommandFailed(str(exc))
-
-
-def _times(obj):
-    return json.loads(json.dumps(obj, default=str))
 
 
 # ---------------------------------------------------------------- commands

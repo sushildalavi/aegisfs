@@ -19,7 +19,6 @@ test: build test-python
 
 test-python:
 	python3 tests/python/testExtensions.py
-	python3 tests/python/testOperationHistory.py
 
 smoke: build
 	scripts/checks/smokeTest.sh

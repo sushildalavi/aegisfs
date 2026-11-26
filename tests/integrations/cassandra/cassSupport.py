@@ -10,7 +10,7 @@ if INTEGRATIONS not in sys.path:
 
 from aegisfsIntegrations.aegisfsClient import AegisError, FileEntry, Replica  # noqa: E402
 from aegisfsIntegrations.cassandra.backend import MemoryBackend  # noqa: E402
-from aegisfsIntegrations.cassandra.model import Observation, utcnow_ms  # noqa: E402
+from aegisfsIntegrations.cassandra.model import Observation  # noqa: E402
 from aegisfsIntegrations.cassandra.settings import Settings  # noqa: E402
 from aegisfsIntegrations.cassandra.store import IndexStore  # noqa: E402
 

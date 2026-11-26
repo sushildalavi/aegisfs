@@ -54,7 +54,7 @@ def main():
     lines = ["# AegisFS Benchmark Summary\n",
              "Process-local 5-node cluster, RF=3. Latency is end-to-end client wall-clock "
              "(includes TCP + replication to all 3 replicas). Each point is the mean/percentiles "
-             f"over repetitions. Measured on the dev host; absolute numbers are machine-specific.\n",
+             "over repetitions. Measured on the dev host; absolute numbers are machine-specific.\n",
              "## Latency by operation, size, and replication mode\n",
              "| op | size | mode | n | mean ms | p50 | p95 | p99 | MB/s |",
              "|----|------|------|---|---------|-----|-----|-----|------|"]

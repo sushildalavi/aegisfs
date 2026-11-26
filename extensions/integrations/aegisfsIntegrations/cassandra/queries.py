@@ -32,7 +32,8 @@ def row_view(row):
 
 def summary_view(row):
     out = row_view(row)
-    out.pop("verified_at", None) if out.get("sha256") is None else None
+    if out.get("sha256") is None:
+        out.pop("verified_at", None)
     return out
 
 

@@ -25,7 +25,6 @@ trap cleanup EXIT
 
 [ -x "$BIN" ] || { echo "build first: cmake --build build"; exit 1; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
-field() { grep "^$2=" | head -1 | cut -d= -f2; }  # usage: cmd | field _ key  (arg2=key)
 getfield() { grep "^$1=" <<<"$2" | head -1 | cut -d= -f2; }
 
 say "Launch $N-node cluster"

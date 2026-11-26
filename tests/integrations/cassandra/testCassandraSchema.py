@@ -1,7 +1,6 @@
 """Migrations, query-model rules and settings validation (no Cassandra needed)."""
 import glob
 import os
-import re
 import ssl
 import tempfile
 import unittest

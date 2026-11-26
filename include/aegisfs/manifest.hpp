@@ -40,9 +40,6 @@ struct Manifest {
   // Segments in canonical order (base first, then appends by orderBefore).
   std::vector<const SegmentRef*> ordered() const;
   uint64_t totalSize() const;
-  // SHA-256 of the logical file content computed over disk segments in canonical order.
-  // Requires a reader that returns a segment's bytes by diskName.
-  // (Convenience; replication/merge compute this via StorageEngine.)
 
   void serialize(std::string& out) const;
   static std::optional<Manifest> parse(const uint8_t* data, size_t len);
