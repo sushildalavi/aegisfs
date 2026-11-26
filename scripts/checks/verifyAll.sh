@@ -26,7 +26,7 @@ else
 fi
 
 hdr "Python extension tests"
-if python3 tests/python/testExtensions.py >/tmp/aegis_pytest.log 2>&1; then
+if python3 tests/extensions/testExtensions.py >/tmp/aegis_pytest.log 2>&1; then
   pass "python tests passed"
 else
   fail "python tests failed (see /tmp/aegis_pytest.log)"; tail -8 /tmp/aegis_pytest.log

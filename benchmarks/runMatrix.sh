@@ -16,21 +16,21 @@ mkdir -p "$RESULTS"
 
 NODE_PIDS=()
 # Stops only the nodes this script started.
-stop_cluster(){
+stopCluster(){
   [ "${#NODE_PIDS[@]}" -eq 0 ] && return 0
   kill -9 "${NODE_PIDS[@]}" 2>/dev/null
   wait "${NODE_PIDS[@]}" 2>/dev/null
   NODE_PIDS=()
 }
-cleanup(){ stop_cluster; rm -rf "$TMP" "$ROOT/run-bench"; }
+cleanup(){ stopCluster; rm -rf "$TMP" "$ROOT/run-bench"; }
 trap cleanup EXIT
 [ -x "$BIN" ] || { echo "build first"; exit 1; }
 
-now_ms(){ python3 -c 'import time;print(int(time.time()*1000))'; }
+nowMs(){ python3 -c 'import time;print(int(time.time()*1000))'; }
 
-start_cluster() {
+startCluster() {
   local parallel="$1"
-  stop_cluster
+  stopCluster
   rm -rf "$ROOT/run-bench"; mkdir -p "$ROOT/run-bench"
   local seed="127.0.0.1:$BASE"
   for i in $(seq 0 $((N-1))); do
@@ -45,9 +45,9 @@ start_cluster() {
 
 echo "mode,op,size_kb,rep,latency_ms,bytes_per_s" > "$RESULTS/raw.csv"
 
-run_matrix() {
+runMatrix() {
   local mode="$1" parallel="$2"
-  start_cluster "$parallel"
+  startCluster "$parallel"
   local E="127.0.0.1:$BASE"
   for kb in "${SIZES_KB[@]}"; do
     local bytes=$((kb*1024))
@@ -56,15 +56,15 @@ run_matrix() {
       local name="bench/${mode}_${kb}_${r}"
       # CREATE
       local t0 t1 dt bps
-      t0=$(now_ms); if ! "$BIN" --entry "$E" create "$TMP/in_$kb.bin" "$name" >/dev/null 2>&1; then
+      t0=$(nowMs); if ! "$BIN" --entry "$E" create "$TMP/in_$kb.bin" "$name" >/dev/null 2>&1; then
         echo "create failed for $name" >&2; exit 1
-      fi; t1=$(now_ms)
+      fi; t1=$(nowMs)
       dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1; bps=$((bytes*1000/dt))
       echo "$mode,create,$kb,$r,$dt,$bps" >> "$RESULTS/raw.csv"
       # GET
-      t0=$(now_ms); if ! "$BIN" --entry "$E" get "$name" "$TMP/out_$kb.bin" >/dev/null 2>&1; then
+      t0=$(nowMs); if ! "$BIN" --entry "$E" get "$name" "$TMP/out_$kb.bin" >/dev/null 2>&1; then
         echo "get failed for $name" >&2; exit 1
-      fi; t1=$(now_ms)
+      fi; t1=$(nowMs)
       dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1; bps=$((bytes*1000/dt))
       echo "$mode,get,$kb,$r,$dt,$bps" >> "$RESULTS/raw.csv"
     done
@@ -73,9 +73,9 @@ run_matrix() {
 }
 
 echo "== sequential replication =="
-run_matrix "sequential" 0
+runMatrix "sequential" 0
 echo "== parallel replication =="
-run_matrix "parallel" 1
+runMatrix "parallel" 1
 
 echo "Raw results -> $RESULTS/raw.csv"
 python3 "$ROOT/benchmarks/analyze.py" "$RESULTS/raw.csv" "$RESULTS"

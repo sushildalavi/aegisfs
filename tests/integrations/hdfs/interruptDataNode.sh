@@ -12,7 +12,7 @@ DIR="/aegisfs-test/$RUN"
 NAME="hdfs-it/$RUN/big"
 tool() { dc exec -T connector python3 /opt/aegisfs-integrations/aegisfs-integrations "$@"; }
 fail() { echo "FAIL: $*" >&2; dc start datanode1 datanode2 >/dev/null 2>&1; exit 1; }
-live_datanodes() {
+liveDataNodes() {
   curl -s "http://127.0.0.1:${AEGISFS_HDFS_NN_PORT:-9870}/jmx?qry=Hadoop:service=NameNode,name=FSNamesystemState" \
     | grep -o '"NumLiveDataNodes" : [0-9]*' | grep -o '[0-9]*$'
 }
@@ -47,8 +47,8 @@ dc exec -T connector cat /tmp/run/err.txt | tail -3
 
 # bring HDFS back
 dc start datanode1 datanode2 >/dev/null 2>&1
-for _ in $(seq 1 60); do [ "$(live_datanodes)" = 2 ] && break; sleep 3; done
-[ "$(live_datanodes)" = 2 ] || fail "DataNodes did not come back"
+for _ in $(seq 1 60); do [ "$(liveDataNodes)" = 2 ] && break; sleep 3; done
+[ "$(liveDataNodes)" = 2 ] || fail "DataNodes did not come back"
 dc exec -T namenode hdfs dfsadmin -safemode wait >/dev/null
 
 tool hdfs exists "$DIR/out.dat" >/dev/null 2>&1 && fail "the destination exists after a failed export"

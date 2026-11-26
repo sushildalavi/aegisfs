@@ -24,7 +24,7 @@ static constexpr int kReplyTimeoutMs = 60000;
 Client::Client(std::string entryAddr, std::string clientId)
     : entry(std::move(entryAddr)), clientIdValue(std::move(clientId)) {}
 
-static bool file_size(const std::string& path, uint64_t& out) {
+static bool fileSize(const std::string& path, uint64_t& out) {
   struct stat st{};
   if (::stat(path.c_str(), &st) != 0) return false;
   out = static_cast<uint64_t>(st.st_size);
@@ -42,7 +42,7 @@ OpResult Client::upload(MsgType t, const std::string& localPath, const std::stri
                         uint64_t offset, uint64_t length, const std::string& opIdPrefix,
                         bool stripeIndex) {
   uint64_t sz = 0;
-  if (!file_size(localPath, sz)) return OpResult{Status::NotFound, {}, "local file not found"};
+  if (!fileSize(localPath, sz)) return OpResult{Status::NotFound, {}, "local file not found"};
   if (offset > sz) return OpResult{Status::InvalidArgument, {}, "offset past end of file"};
   sz = std::min<uint64_t>(sz - offset, length);
   if (retry.maxAttempts < 1) retry.maxAttempts = 1;
@@ -223,14 +223,14 @@ OpResult Client::appendStriped(const std::string& localPath, const std::string& 
 
 OpResult Client::create(const std::string& localPath, const std::string& name) {
   uint64_t size = 0;
-  if (stripeBytes > 0 && file_size(localPath, size) && size > stripeBytes)
+  if (stripeBytes > 0 && fileSize(localPath, size) && size > stripeBytes)
     return createStriped(localPath, name, size);
   return upload(MsgType::Create, localPath, name);
 }
 
 OpResult Client::append(const std::string& localPath, const std::string& name) {
   uint64_t size = 0;
-  file_size(localPath, size);
+  fileSize(localPath, size);
   OpResult r = upload(MsgType::Append, localPath, name);
   if (r.status == Status::InvalidArgument && r.info.getOr("striped") == "1") {
     // The file is striped, so this data has to become new chunks plus an index entry.
@@ -330,7 +330,7 @@ OpResult Client::assembleStriped(const std::string& index, const std::string& lo
   for (uint64_t i = 0; i < count && failure.ok(); ++i) {
     uint64_t got = 0;
     if (!results[i].ok()) failure = results[i];
-    else if (!file_size(base + "." + std::to_string(i), got) || got != chunks[i].second)
+    else if (!fileSize(base + "." + std::to_string(i), got) || got != chunks[i].second)
       failure = OpResult{Status::ChecksumMismatch, {}, "chunk size differs from the index"};
   }
   std::string tmpOut = localPath + ".partial";

@@ -17,13 +17,13 @@ compose() {
     -f "$ROOT/deploy/docker/compose.cassandra.yaml" --profile cassandra "$@"
 }
 
-with_indexer=0
-with_init=1
+withIndexer=0
+withInit=1
 secure=0
 for arg in "$@"; do
   case "$arg" in
-    --indexer) with_indexer=1 ;;
-    --no-init) with_init=0 ;;
+    --indexer) withIndexer=1 ;;
+    --no-init) withInit=0 ;;
     --secure) secure=1 ;;
     -h|--help) sed -n '2,11p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
@@ -33,7 +33,7 @@ done
 service=cassandra
 if [ "$secure" = 1 ]; then
   service=cassandra-secure
-  with_init=0
+  withInit=0
   AEGIS_CASS_SECURE_DIR="$("$ROOT/deploy/docker/cassandra/secureCreds.sh")"
   export AEGIS_CASS_SECURE_DIR
 fi
@@ -50,9 +50,9 @@ if [ "$secure" = 1 ]; then
   PY="$ROOT/extensions/integrations/.venv-cass/bin/python"
   [ -x "$PY" ] || PY=python3
   "$PY" "$ROOT/deploy/docker/cassandra/secureSetup.py" "$AEGIS_CASS_SECURE_DIR"
-elif [ "$with_init" = 0 ]; then
+elif [ "$withInit" = 0 ]; then
   :
-elif [ "$with_indexer" = 1 ]; then
+elif [ "$withIndexer" = 1 ]; then
   compose up -d cassandra-init cassandra-indexer
 else
   compose up cassandra-init

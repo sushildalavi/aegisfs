@@ -65,7 +65,7 @@ status() {
   done
 }
 
-kill_node() {
+killNode() {
   local idx="$1"; local pidf="$RUN/node$idx.pid"
   [ -e "$pidf" ] || { echo "no such node $idx"; exit 1; }
   local pid; pid="$(cat "$pidf")"
@@ -74,7 +74,7 @@ kill_node() {
   echo "killed node$idx (pid=$pid)"
 }
 
-restart_node() {
+restartNode() {
   local idx="$1"; local port=$((BASE_PORT+idx)); local data="$RUN/node$idx"
   local seed="$HOST:$BASE_PORT"
   local seeds_arg=(--seeds "$seed")
@@ -88,7 +88,7 @@ case "${1:-}" in
   start) start "${2:-5}" ;;
   stop) stop ;;
   status) status ;;
-  kill) kill_node "${2:?node index}" ;;
-  restart) restart_node "${2:?node index}" ;;
+  kill) killNode "${2:?node index}" ;;
+  restart) restartNode "${2:?node index}" ;;
   *) echo "usage: $0 {start [N]|stop|status|kill <idx>|restart <idx>}"; exit 2 ;;
 esac

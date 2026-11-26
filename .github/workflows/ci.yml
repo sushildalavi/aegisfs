@@ -40,7 +40,7 @@ jobs:
       - name: Python tests (gateway and exporter)
         if: matrix.sanitizer == 'none'
         run: |
-          python3 tests/python/testExtensions.py
+          python3 tests/extensions/testExtensions.py
 
       - name: Reliability test (two node failures, malformed frames)
         if: matrix.sanitizer == 'none'

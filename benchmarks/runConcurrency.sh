@@ -15,19 +15,19 @@ CLIENT_COUNTS=(1 5 10 20)
 mkdir -p "$RESULTS"
 NODE_PIDS=()
 # Stops only the nodes this script started.
-stop_cluster(){
+stopCluster(){
   [ "${#NODE_PIDS[@]}" -eq 0 ] && return 0
   kill -9 "${NODE_PIDS[@]}" 2>/dev/null
   wait "${NODE_PIDS[@]}" 2>/dev/null
   NODE_PIDS=()
 }
-cleanup(){ stop_cluster; rm -rf "$TMP" "$ROOT/run-bench"; }
+cleanup(){ stopCluster; rm -rf "$TMP" "$ROOT/run-bench"; }
 trap cleanup EXIT
 [ -x "$BIN" ] || { echo "build first"; exit 1; }
-now_ms(){ python3 -c 'import time;print(int(time.time()*1000))'; }
+nowMs(){ python3 -c 'import time;print(int(time.time()*1000))'; }
 
-start_cluster(){
-  stop_cluster
+startCluster(){
+  stopCluster
   rm -rf "$ROOT/run-bench"; mkdir -p "$ROOT/run-bench"
   local seed="127.0.0.1:$BASE"
   for i in $(seq 0 $((N-1))); do
@@ -43,10 +43,10 @@ start_cluster(){
 head -c 4096 /dev/urandom > "$TMP/payload"
 echo "clients,total_ops,wall_ms,ops_per_s" > "$RESULTS/concurrency.csv"
 
-start_cluster
+startCluster
 for C in "${CLIENT_COUNTS[@]}"; do
-  local_total=$((C*OPS_PER_CLIENT))
-  t0=$(now_ms)
+  totalOps=$((C*OPS_PER_CLIENT))
+  t0=$(nowMs)
   pids=()
   for c in $(seq 0 $((C-1))); do
     (
@@ -64,10 +64,10 @@ for C in "${CLIENT_COUNTS[@]}"; do
     pids+=($!)
   done
   for p in "${pids[@]}"; do wait "$p"; done
-  t1=$(now_ms); dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1
-  ops_s=$(python3 -c "print(round($local_total*1000/$dt,1))")
-  echo "$C,$local_total,$dt,$ops_s" >> "$RESULTS/concurrency.csv"
-  echo "  clients=$C ops=$local_total wall=${dt}ms -> ${ops_s} ops/s"
+  t1=$(nowMs); dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1
+  opsPerSec=$(python3 -c "print(round($totalOps*1000/$dt,1))")
+  echo "$C,$totalOps,$dt,$opsPerSec" >> "$RESULTS/concurrency.csv"
+  echo "  clients=$C ops=$totalOps wall=${dt}ms -> ${opsPerSec} ops/s"
 done
 
 echo "Wrote $RESULTS/concurrency.csv"
