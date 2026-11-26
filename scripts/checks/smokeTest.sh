@@ -7,14 +7,15 @@ source "$ROOT/scripts/devCreds.sh"
 BIN="$ROOT/build/aegisfs"
 E="127.0.0.1:9100"
 TMP="$(mktemp -d)"
-cleanup() { "$ROOT/scripts/cluster.sh" stop >/dev/null 2>&1 || true; pkill -9 -f "aegisfs serve" 2>/dev/null || true; rm -rf "$TMP" "$ROOT/run"; }
+# A private run directory, so this only ever stops and deletes the cluster it started.
+export AEGISFS_RUN_DIR="$TMP/run"
+cleanup() { "$ROOT/scripts/cluster.sh" stop >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
 
 fail() { echo "SMOKE FAIL: $1" >&2; exit 1; }
 
 [ -x "$BIN" ] || fail "binary not built at $BIN"
 
-rm -rf "$ROOT/run"
 "$ROOT/scripts/cluster.sh" start 3 >/dev/null
 sleep 3
 

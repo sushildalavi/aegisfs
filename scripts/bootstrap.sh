@@ -7,14 +7,14 @@ cd "$ROOT"
 echo "== AegisFS bootstrap =="
 OS="$(uname -s)"
 
-install_mac() {
+installMac() {
   command -v brew >/dev/null || { echo "Homebrew required: https://brew.sh"; exit 1; }
   brew list cmake >/dev/null 2>&1 || brew install cmake
   brew list ninja >/dev/null 2>&1 || brew install ninja
   brew list openssl@3 >/dev/null 2>&1 || brew install openssl@3
 }
 
-install_linux() {
+installLinux() {
   if command -v apt-get >/dev/null; then
     sudo apt-get update
     sudo apt-get install -y cmake ninja-build clang libssl-dev
@@ -24,8 +24,8 @@ install_linux() {
 }
 
 case "$OS" in
-  Darwin) install_mac ;;
-  Linux)  install_linux ;;
+  Darwin) installMac ;;
+  Linux)  installLinux ;;
   *) echo "unsupported OS: $OS"; exit 1 ;;
 esac
 

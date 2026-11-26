@@ -33,13 +33,13 @@ fi
 MODE="${1:-all}"
 case "$MODE" in all|default|secure) ;; *) echo "usage: $0 [all|default|secure]" >&2; exit 2 ;; esac
 
-started_cluster=0
-started_cassandra=0
+startedCluster=0
+startedCassandra=0
 cleanup() {
   status=$?
   if [ "${KEEP_UP:-0}" != 1 ]; then
-    [ "$started_cluster" = 1 ] && "$ROOT/scripts/cluster.sh" stop >/dev/null 2>&1 || true
-    [ "$started_cassandra" = 1 ] && "$ROOT/scripts/integrations/cassandraDown.sh" >/dev/null 2>&1 || true
+    [ "$startedCluster" = 1 ] && "$ROOT/scripts/cluster.sh" stop >/dev/null 2>&1 || true
+    [ "$startedCassandra" = 1 ] && "$ROOT/scripts/integrations/cassandraDown.sh" >/dev/null 2>&1 || true
   fi
   exit "$status"
 }
@@ -52,7 +52,7 @@ export AEGISFS_INT_AEGISFS_ENTRY="127.0.0.1:$AEGISFS_BASE_PORT"
 
 if ! "$ROOT/build/aegisfs" --entry "$AEGISFS_INT_AEGISFS_ENTRY" health >/dev/null 2>&1; then
   "$ROOT/scripts/cluster.sh" start 3
-  started_cluster=1
+  startedCluster=1
 fi
 for _ in $(seq 1 30); do
   "$ROOT/build/aegisfs" --entry "$AEGISFS_INT_AEGISFS_ENTRY" members 2>/dev/null | grep -q '^count=3' && break
@@ -78,7 +78,7 @@ phase() {  # phase default|secure
     else
       "$ROOT/scripts/integrations/cassandraUp.sh" --no-init
     fi
-    started_cassandra=1
+    startedCassandra=1
   fi
   echo "== $1: unit tests =="
   (cd "$ROOT/tests/integrations/cassandra" && "$VENV/bin/python" -W error::ResourceWarning -m unittest \

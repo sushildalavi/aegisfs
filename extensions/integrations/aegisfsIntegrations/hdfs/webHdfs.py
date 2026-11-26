@@ -75,7 +75,7 @@ class _SinkError(Exception):
 
 
 class HdfsSettings:
-    """Everything the client needs. Built from Config by `fromConfig` or directly in tests."""
+    """Everything the client needs. Built from Config by `settings.load` or directly in tests."""
 
     def __init__(self, namenode_url, user=None, token=None, allow_insecure_http=False,
                  ca_file=None, allowed_redirect_hosts=None, timeout=60.0, retries=3,
@@ -273,7 +273,7 @@ class WebHdfsClient:
                                                        (": " + detail) if detail else ""),
                                 status, remote)
 
-    def _resolve(self, method, url, expect_redirect, body_path=None, body_size=None):
+    def _resolve(self, method, url, body_path=None, body_size=None):
         """Send to the NameNode URL and walk validated redirects.
 
         Returns (connection, response, final_url) with the response unread. The caller closes the
@@ -314,7 +314,7 @@ class WebHdfsClient:
         attempts = self.settings.retries + 1 if idempotent else 1
         for attempt in range(attempts):
             try:
-                conn, resp, final = self._resolve(method, url, False)
+                conn, resp, final = self._resolve(method, url)
                 try:
                     body = resp.read()
                     status = resp.status
@@ -380,7 +380,7 @@ class WebHdfsClient:
     def checksum(self, path):
         """GETFILECHECKSUM: HDFS's own composite checksum (not comparable to SHA-256)."""
         url = self._namenode_url(path, "GETFILECHECKSUM")
-        conn, resp, final = self._resolve("GET", url, True)
+        conn, resp, final = self._resolve("GET", url)
         try:
             body = resp.read()
             if resp.status >= 400:
@@ -398,7 +398,7 @@ class WebHdfsClient:
         url = "%s://%s:%d/jmx?qry=Hadoop:service=NameNode,name=NameNodeInfo" % (
             self.scheme, self.host, self.port)
         try:
-            conn, resp, _ = self._resolve("GET", url, False)
+            conn, resp, _ = self._resolve("GET", url)
             try:
                 body = resp.read()
                 if resp.status != 200:
@@ -410,15 +410,14 @@ class WebHdfsClient:
         except (HdfsError, ValueError, KeyError, IndexError):
             return None
 
-    def upload(self, local_path, hdfs_path, size, progress=None):
+    def upload(self, local_path, hdfs_path, size):
         """Create a new file (never overwrites) from a local file of known size.
 
         Step one asks the NameNode, step two sends the bytes to the DataNode it names. Not
         retried here: a half-written create must be cleaned up by the caller, not repeated.
         """
         url = self._namenode_url(hdfs_path, "CREATE", {"overwrite": "false"})
-        conn, resp, final = self._resolve("PUT", url, True, body_path=local_path,
-                                          body_size=size)
+        conn, resp, final = self._resolve("PUT", url, body_path=local_path, body_size=size)
         try:
             body = resp.read()
             if resp.status != 201:
@@ -444,7 +443,7 @@ class WebHdfsClient:
             url = self._namenode_url(hdfs_path, "OPEN", params)
             conn = None
             try:
-                conn, resp, final = self._resolve("GET", url, True)
+                conn, resp, final = self._resolve("GET", url)
                 if resp.status >= 400:
                     body = resp.read()
                     if resp.status in RETRY_STATUS and failures < self.settings.retries:

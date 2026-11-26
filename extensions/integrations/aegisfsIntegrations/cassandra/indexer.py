@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from ..aegisfsClient import AegisError, is_stripe_chunk, sha256_file
 from .errors import StoreUnavailable
-from .model import (Observation, ObservationError, STATUS_INCOMPLETE, STATUS_INDEXED, STATUS_STALE,
+from .model import (Observation, ObservationError, STATUS_INCOMPLETE, STATUS_STALE,
                     SIZE_LISTSTORE, SIZE_READ, STRIPED_CHUNKS, STRIPED_VERIFIED, VERIFY_FAILED,
                     VERIFY_SKIPPED, parent_of_chunk, utcnow_ms)
 
@@ -188,7 +188,7 @@ def drain(store, spool, aegis, settings, max_events=None):
     def inventory():
         if cache["inv"] is None:
             entries, unreachable = aegis.inventory()
-            files, counts, bytes_, _ = split_inventory(entries)
+            files, counts, _, _ = split_inventory(entries)
             cache["inv"] = (files, counts, len(unreachable))
         return cache["inv"]
 
@@ -244,7 +244,7 @@ def _summary_matches(known, obs):
             and known["striped"] == obs.striped and known["replica_count"] == replica_count)
 
 
-def reconcile(store, spool, aegis, settings, verify=False, max_bytes=None, progress=None):
+def reconcile(store, spool, aegis, settings, verify=False, max_bytes=None):
     """Compare the full AegisFS inventory with the index and bring the index up to date.
 
     Files AegisFS no longer lists are marked stale (or incomplete when some nodes did not answer),

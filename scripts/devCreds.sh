@@ -8,7 +8,8 @@
 # valid for 127.0.0.1 and localhost; set AEGISFS_DEV_SANS="DNS:node0,DNS:node1" to add more names.
 # These are for local runs only. Do not use them anywhere real.
 
-_devRoot="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# zsh does not set BASH_SOURCE; there $0 names the sourced file.
+_devRoot="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 _devDir="${AEGISFS_DEV_DIR:-$_devRoot/.dev}"
 
 if [ ! -f "$_devDir/token" ] || [ ! -f "$_devDir/node.pem" ]; then

@@ -34,7 +34,7 @@ import cassSupport as s
 from aegisfsIntegrations import cli
 from aegisfsIntegrations.aegisfsClient import AegisClient, AegisError
 from aegisfsIntegrations.config import Config
-from aegisfsIntegrations.cassandra import indexer, model as m, queries, schema
+from aegisfsIntegrations.cassandra import indexer, model as m, schema
 from aegisfsIntegrations.cassandra.errors import DriverMissing, SecurityError, StoreUnavailable
 from aegisfsIntegrations.cassandra.settings import Settings
 from aegisfsIntegrations.cassandra.spool import Spool

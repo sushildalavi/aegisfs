@@ -69,6 +69,7 @@ class Client {
   bool retryable(Status s) const;
   std::string entry;
   std::string clientIdValue;
+  std::string operationInstance;
   std::map<std::string, uint64_t> watermarks;
   RetryPolicy retry;
   uint64_t opCounter{0};

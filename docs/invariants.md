@@ -11,7 +11,7 @@ The properties the code is meant to keep, and the tests that check each one. Tes
 | I4 | Nodes with the same membership view compute the same replica set. | `RingTest.AgreementAcrossNodes` |
 | I5 | Only the first `create` of a name succeeds; later ones return `ALREADY_EXISTS`. | `Integration.FirstCreateOnly` |
 | I6 | `append` to a missing file fails and never creates it. | `Integration.AppendMissingFileErrors` |
-| I7 | A client's appends appear in the order it issued them on every replica. | `ManifestTest.PerClientOrder`, `Integration.RepeatedAppendAccumulates`, `Replication.MultiClientAppendsAllPresentOrdered` |
+| I7 | A client's appends appear in the order it issued them on every replica, including when it changes coordinators. | `ManifestTest.PerClientOrder`, `Integration.RepeatedAppendAccumulates`, `Replication.MultiClientAppendsAllPresentOrdered`, `Replication.AppendsRemainOrderedAcrossCoordinators` |
 | I8 | A retried operation (same op id) is applied at most once. | `ManifestTest.Idempotent`, `Replication.IdempotentReplay` |
 | I9 | `get` returns the calling client's own acknowledged appends. | `Replication.ReadYourWrites`, `Replication.WatermarkAdvances` |
 | I10 | Segment checksums are verified on write, read and replication. | `StorageFixture.ChecksumRoundTrip`, `StorageFixture.RejectsWrongChecksum`, `Integration.CreateGetByteIdentical` |
@@ -21,7 +21,7 @@ The properties the code is meant to keep, and the tests that check each one. Tes
 | I14 | After a node fails, the replica count is restored by re-replication. | `Chaos.ReReplicationRestoresReplica` |
 | I15 | A node joining does not make existing files unavailable. | `Chaos.JoinKeepsFilesAvailable` |
 | I16 | A stale gossip message cannot revive a failed node or change its address. | `MembershipTest.HigherIncarnationWins`, `MembershipTest.StaleIncarnationCannotChangeAddress`, `MembershipTest.IncarnationRefute` |
-| I17 | Large files move in bounded chunks and are never held in memory whole. | `Integration.LargeFileStreaming`, `NetTest.StreamingRoundTrip` |
+| I17 | Large files are uploaded, replicated and downloaded intact through the chunked streaming path. | `Integration.LargeFileStreaming`, `NetTest.StreamingRoundTrip` |
 | I18 | File names are validated; path traversal is rejected. | `StorageFixture.PathValidation`, `Integration.InvalidFilenameRejected` |
 | I19 | Concurrent appends to one file never produce a torn manifest or a duplicate segment. | `Concurrency.ConcurrentAppendsNoDuplicateOrTornManifest` |
 | I20 | `getFromReplica` has no side effects on the replica it reads. | `Integration.GetFromReplicaPurityAndAgreement` |
@@ -50,3 +50,17 @@ Not covered by any test today:
 
 - Linearizability. Appends from different clients converge to one deterministic order, but that
   order comes from Lamport timestamps and not from wall-clock time.
+- Peak memory of the storage nodes. A replica holds one whole segment in memory while serving a read.
+- Separate physical machines.
+
+## Known gaps
+
+These cases break, or weaken, a property above. No test in the repository covers them. They are
+described in the [README](../README.md#known-limitations).
+
+- I7: appends from different clients are not linearizable; their deterministic Lamport order is not
+  wall-clock order.
+- Handoff and repair are asynchronous, so a placement change can be temporarily under-replicated
+  while reconciliation is still running.
+- There is no dedicated failure-injection regression for a hand-off interrupted by a segment transfer
+  failure.

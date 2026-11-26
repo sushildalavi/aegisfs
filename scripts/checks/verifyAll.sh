@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs everything that should pass before a change is merged: a clean build, the full ctest suite,
+# Runs the checks that should pass before a change is merged: a build, the full ctest suite,
 # the Python tests, the smoke test, the 10-node demo, the real-process reliability run, and a check
 # that the recorded benchmark data is present. Exits nonzero if any step fails.
 set -uo pipefail
@@ -25,9 +25,8 @@ else
   fail "ctest failed (see /tmp/aegis_ctest.log)"; tail -5 /tmp/aegis_ctest.log
 fi
 
-hdr "Python extension and operation-history tests"
-if python3 tests/python/testExtensions.py >/tmp/aegis_pytest.log 2>&1 \
-   && python3 tests/python/testOperationHistory.py >>/tmp/aegis_pytest.log 2>&1; then
+hdr "Python extension tests"
+if python3 tests/extensions/testExtensions.py >/tmp/aegis_pytest.log 2>&1; then
   pass "python tests passed"
 else
   fail "python tests failed (see /tmp/aegis_pytest.log)"; tail -8 /tmp/aegis_pytest.log

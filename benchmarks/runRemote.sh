@@ -30,7 +30,7 @@ mkdir -p "$RESULTS"
 trap 'rm -rf "$TMP"' EXIT
 [ -x "$BIN" ] || { echo "build first: cmake --build build"; exit 1; }
 
-now_ms(){ python3 -c 'import time;print(int(time.time()*1000))'; }
+nowMs(){ python3 -c 'import time;print(int(time.time()*1000))'; }
 
 if ! "$BIN" --entry "$ENTRY" health >/dev/null 2>&1; then
   echo "cannot reach $ENTRY, start a real cluster and pass a live entry address" >&2
@@ -43,14 +43,14 @@ for kb in "${SIZES_KB[@]}"; do
   head -c "$bytes" /dev/urandom > "$TMP/in_$kb.bin"
   for r in $(seq 1 "$REPS"); do
     fname="bench/${NAME_TAG}_${kb}_${r}"
-    t0=$(now_ms)
+    t0=$(nowMs)
     "$BIN" --entry "$ENTRY" create "$TMP/in_$kb.bin" "$fname" >/dev/null 2>&1 || { echo "create failed for $fname" >&2; exit 1; }
-    t1=$(now_ms); dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1; bps=$((bytes*1000/dt))
+    t1=$(nowMs); dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1; bps=$((bytes*1000/dt))
     echo "$NAME_TAG,create,$kb,$r,$dt,$bps" >> "$OUT"
 
-    t0=$(now_ms)
+    t0=$(nowMs)
     "$BIN" --entry "$ENTRY" get "$fname" "$TMP/out_$kb.bin" >/dev/null 2>&1 || { echo "get failed for $fname" >&2; exit 1; }
-    t1=$(now_ms); dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1; bps=$((bytes*1000/dt))
+    t1=$(nowMs); dt=$((t1-t0)); [ "$dt" -eq 0 ] && dt=1; bps=$((bytes*1000/dt))
     echo "$NAME_TAG,get,$kb,$r,$dt,$bps" >> "$OUT"
   done
   echo "  [${NAME_TAG}] ${kb}KiB done"

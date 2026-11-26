@@ -16,7 +16,7 @@ namespace fs = std::filesystem;
 
 // An in-process cluster: N Node objects on distinct localhost ports with separate data dirs,
 // communicating over real TCP. Suitable for integration & concurrency tests. For true crash
-// (SIGKILL) + restart durability, use scripts/chaosTest.sh (separate OS processes).
+// (SIGKILL) checks with separate OS processes, use scripts/checks/reliabilityTest.sh.
 class Cluster {
  public:
   // `tune`, if given, can adjust each node's config before it starts.
@@ -121,7 +121,7 @@ class Cluster {
     cfg.port = port;
     cfg.dataRoot = rootPath + "/node" + std::to_string(i);
     cfg.nodeId = "node" + std::to_string(i);
-    cfg.rf = ringNodes.empty() ? 3 : 3;
+    cfg.rf = 3;
     cfg.gossipIntervalMs = 80; cfg.probeIntervalMs = 120; cfg.suspectMs = 300;
     cfg.reapMs = 5000; cfg.reconcileMs = 150; cfg.scrubIntervalMs = 0;
     cfg.seeds = {addresses[(i + 1) % addresses.size()]};

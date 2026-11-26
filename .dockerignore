@@ -6,8 +6,18 @@ run-bench/
 data/
 benchmarks/results/
 *.log
-.dev/
-.dev-compose/
 CLAUDE.md
+AGENTS.md
 context.d
 buildStatus.json
+# At any depth: credentials, virtualenvs and caches must not reach a build context.
+**/.dev
+**/.dev-compose
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.p12
+**/*.pass
+**/.venv*
+**/__pycache__

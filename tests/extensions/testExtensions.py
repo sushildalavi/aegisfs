@@ -95,7 +95,7 @@ class ExtensionTest(unittest.TestCase):
             ["aegisfs"],
             0,
             "counter.op_create=4\n"
-            "lat.create.p50_ms=12.5\n"
+            "lat.create.p50Us=12\n"
             "counter.bad=not-a-number\n"
             "status=OK\n",
             "",
@@ -103,7 +103,7 @@ class ExtensionTest(unittest.TestCase):
         with mock.patch.object(exporter.subprocess, "run", return_value=completed):
             body = exporter.scrape().decode()
         self.assertIn("aegisfs_counter_op_create 4", body)
-        self.assertIn("aegisfs_lat_create_p50_ms 12.5", body)
+        self.assertIn("aegisfs_lat_create_p50Us 12", body)
         self.assertNotIn("aegisfs_counter_bad", body)
         self.assertNotIn("status=OK", body)
 

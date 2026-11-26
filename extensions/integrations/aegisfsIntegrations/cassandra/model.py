@@ -9,7 +9,7 @@ what the row already holds, where "older" is decided by the pair (AegisFS file v
 observed_at). The file version always wins; observed_at only breaks ties inside one version.
 """
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 

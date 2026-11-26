@@ -20,17 +20,17 @@ say()  { printf "\n\033[1;36m== %s ==\033[0m\n" "$1"; }
 why()  { printf "  \033[2m%s\033[0m\n" "$1"; }
 ok()   { printf "  \033[32m[ok]\033[0m %s\n" "$1"; CHECKS+=("ok|$1"); }
 bad()  { printf "  \033[31m[FAIL]\033[0m %s\n" "$1"; FAILED=1; CHECKS+=("FAIL|$1"); }
-cleanup(){ "$CLUSTER" stop >/dev/null 2>&1 || true; pkill -9 -f "aegisfs serve" 2>/dev/null || true; rm -rf "$TMP" "$ROOT/run"; }
+# A private run directory, so this only ever stops and deletes the cluster it started.
+export AEGISFS_RUN_DIR="$TMP/run"
+cleanup(){ "$CLUSTER" stop >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
 
 [ -x "$BIN" ] || { echo "build first: cmake --build build"; exit 1; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
-field() { grep "^$2=" | head -1 | cut -d= -f2; }  # usage: cmd | field _ key  (arg2=key)
-getfield() { grep "^$1=" <<<"$2" | head -1 | cut -d= -f2; }
+getField() { grep "^$1=" <<<"$2" | head -1 | cut -d= -f2; }
 
 say "Launch $N-node cluster"
 why "Each node is a separate OS process with its own data directory, talking over real TCP."
-rm -rf "$ROOT/run"
 "$CLUSTER" start $N >/dev/null
 sleep 5
 MEM=$("$BIN" --entry "$E" listMemIds | wc -l | tr -d ' ')
@@ -43,10 +43,10 @@ head -c $((10*1024*1024)) /dev/urandom > "$TMP/orig.bin"
 ORIG_SHA="$(sha "$TMP/orig.bin")"
 CRES="$("$BIN" --entry "$E" create "$TMP/orig.bin" demo/payload)"
 echo "$CRES" | sed 's/^/     /'
-[ "$(getfield status "$CRES")" = "OK" ] && ok "create OK" || bad "create status $(getfield status "$CRES")"
-[ "$(getfield committed "$CRES")" = "3" ] && ok "replicated to 3 nodes" || bad "committed != 3"
+[ "$(getField status "$CRES")" = "OK" ] && ok "create OK" || bad "create status $(getField status "$CRES")"
+[ "$(getField committed "$CRES")" = "3" ] && ok "replicated to 3 nodes" || bad "committed != 3"
 LS="$("$BIN" --entry "$E" ls demo/payload)"
-R0="$(getfield r0_addr "$LS")"; R1="$(getfield r1_addr "$LS")"; R2="$(getfield r2_addr "$LS")"
+R0="$(getField r0_addr "$LS")"; R1="$(getField r1_addr "$LS")"; R2="$(getField r2_addr "$LS")"
 ok "replicas: $R0 $R1 $R2"
 
 say "Get the file back and verify SHA-256"
@@ -67,7 +67,7 @@ say "Merge and compare all 3 replica checksums"
 why "Merge reconciles any replicas that fell behind; afterward every replica must be byte-identical."
 MRES="$("$BIN" --entry "$E" merge demo/payload)"
 echo "$MRES" | sed 's/^/     /'
-[ "$(getfield status "$MRES")" = "OK" ] && ok "merge OK" || bad "merge status $(getfield status "$MRES")"
+[ "$(getField status "$MRES")" = "OK" ] && ok "merge OK" || bad "merge status $(getField status "$MRES")"
 declare -a SHAS=()
 for r in "$R0" "$R1" "$R2"; do
   "$BIN" --entry "$E" getFromReplica "$r" demo/payload "$TMP/rep.bin" >/dev/null 2>&1
@@ -82,17 +82,18 @@ MERGED_SHA="${SHAS[0]}"
 
 say "Fault injection: kill TWO of the three replicas"
 why "RF=3 is designed to survive exactly this: up to 2 simultaneous node failures."
-idx_of(){ echo $(( $(echo "$1" | cut -d: -f2) - BASE )); }
-K0="$(idx_of "$R0")"; K1="$(idx_of "$R1")"
+idxOf(){ echo $(( $(echo "$1" | cut -d: -f2) - BASE )); }
+K0="$(idxOf "$R0")"; K1="$(idxOf "$R1")"
 "$CLUSTER" kill "$K0" | sed 's/^/     /'
 "$CLUSTER" kill "$K1" | sed 's/^/     /'
 # entry: a node that is not killed
-ENTRY_IDX=$(( (K0+5) % N )); [ "$ENTRY_IDX" = "$K0" ] && ENTRY_IDX=$(((K0+1)%N))
+ENTRY_IDX=$(( (K0+5) % N ))
+while [ "$ENTRY_IDX" = "$K0" ] || [ "$ENTRY_IDX" = "$K1" ]; do ENTRY_IDX=$(( (ENTRY_IDX+1) % N )); done
 GRES="$("$BIN" --entry "127.0.0.1:$((BASE+ENTRY_IDX))" get demo/payload "$TMP/after.bin")"
-if [ "$(getfield status "$GRES")" = "OK" ] && [ "$(sha "$TMP/after.bin")" = "$MERGED_SHA" ]; then
+if [ "$(getField status "$GRES")" = "OK" ] && [ "$(sha "$TMP/after.bin")" = "$MERGED_SHA" ]; then
   ok "file still readable from surviving replica after 2 failures, checksum verified"
 else
-  bad "read after 2 failures failed: $(getfield status "$GRES")"
+  bad "read after 2 failures failed: $(getField status "$GRES")"
 fi
 
 say "Recovery: wait for automatic re-replication to restore RF=3"
@@ -101,7 +102,7 @@ sleep 6
 LS2="$("$BIN" --entry "127.0.0.1:$((BASE+ENTRY_IDX))" ls demo/payload)"
 NEW=0
 for i in 0 1 2; do
-  a="$(getfield r${i}_addr "$LS2")"
+  a="$(getField r${i}_addr "$LS2")"
   if "$BIN" --entry "127.0.0.1:$((BASE+ENTRY_IDX))" getFromReplica "$a" demo/payload "$TMP/rr.bin" >/dev/null 2>&1; then
     [ "$(sha "$TMP/rr.bin")" = "$MERGED_SHA" ] && NEW=$((NEW+1))
   fi

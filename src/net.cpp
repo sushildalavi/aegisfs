@@ -31,6 +31,7 @@ std::mutex gTlsMu;
 TlsConfig tlsState;
 std::string gAuthToken;
 std::once_flag gTlsInit;
+constexpr int kTlsHandshakeTimeoutMs = 1000;
 void initTlsLibrary() {
   OPENSSL_init_ssl(0, nullptr);
   OPENSSL_init_crypto(0, nullptr);
@@ -202,6 +203,9 @@ Conn Conn::dial(const std::string& host, int port, int timeoutMs) {
                         : SSL_set1_host(ssl, host.c_str()) == 1;
       if (!named) { SSL_free(ssl); SSL_CTX_free(ctx); ::close(fd); return Conn(); }
     }
+    struct timeval tv{timeoutMs / 1000, (timeoutMs % 1000) * 1000};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     if (SSL_connect(ssl) != 1) { SSL_free(ssl); SSL_CTX_free(ctx); ::close(fd); return Conn(); }
     // The connection owns the SSL object; its context is retained by SSL.
     SSL_CTX_free(ctx);
@@ -418,6 +422,10 @@ Conn Listener::accept() {
   int one = 1;
   setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
   if (context) {
+    struct timeval tv{kTlsHandshakeTimeoutMs / 1000,
+                      (kTlsHandshakeTimeoutMs % 1000) * 1000};
+    setsockopt(cfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(cfd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     SSL* ssl = SSL_new(static_cast<SSL_CTX*>(context));
     if (!ssl) { ::close(cfd); return Conn(); }
     SSL_set_fd(ssl, cfd);

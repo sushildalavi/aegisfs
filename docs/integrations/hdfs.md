@@ -251,40 +251,8 @@ Notes that matter when you adapt it:
   tested only against the fake server.
 - HDFS federation, HA failover (no retry against a second NameNode), encryption zones and erasure
   coding were not tested.
-- The benchmark numbers below come from one laptop with a small emulated HDFS.
 
-## Measured performance
+## Performance
 
-Raw samples are in `benchmarks/integrations/hdfs/transfers.csv`, medians in `summary.csv`, and the
-hardware and versions in `environment.json`. One run on an Apple M3 laptop (8 cores, 16 GB),
-Docker Desktop, 1 NameNode and 2 DataNodes (replication 2, `linux/amd64` image under emulation),
-3 AegisFS nodes, everything on the same machine. 1 MiB and 10 MiB: 5 samples; 100 MiB: 3 samples;
-1 KiB x 30 files: 5 samples. Other work was running on the machine, and the small-file runs varied
-a lot (see the min and max columns in `summary.csv`), so treat these as rough.
-
-| Scenario | Median wall time | Median MB/s | Peak RSS (Python process) |
-| --- | --- | --- | --- |
-| export 100 MiB | 3.07 s (min 2.63, max 3.39) | 34 | 25 MiB |
-| import 100 MiB | 1.88 s (min 1.87, max 2.34) | 56 | 25 MiB |
-| export 10 MiB | 0.48 s | 22 | 25 MiB |
-| import 10 MiB | 0.52 s | 20 | 25 MiB |
-| export 1 MiB | 0.35 s | 3.0 | 24 MiB |
-| import 1 MiB | 0.33 s | 3.2 | 24 MiB |
-| export 30 x 1 KiB, one process per file | 15.4 s (0.51 s per file; min 8.5, max 33) | | |
-| import 30 x 1 KiB, one process per file | 14.6 s (0.49 s per file; min 8.9, max 33) | | |
-| export 30 x 1 KiB, one `export-all` | 12.7 s (0.42 s per file; min 4.2, max 14.6) | | |
-| import 30 x 1 KiB, one `import-all` | 7.5 s (0.25 s per file; min 4.2, max 13.9) | | |
-
-For comparison, native `aegisfs create` / `get` of the same files: 100 MiB in 0.41 s / 0.62 s,
-1 MiB in 0.04 s, and 30 small `get` calls in 1.2 s. These are not like for like. A native create
-writes once to AegisFS. An export reads the file out of AegisFS, uploads it, reads it back from
-HDFS to hash it, and renames it; an import does the mirror image. So an export or import moves each
-byte several times by design, in return for the verification described above, and the HDFS side
-runs under CPU emulation. The per-file cost of small files is dominated by fixed work (several
-WebHDFS round trips, the AegisFS client process, journal fsyncs in batch mode), not by bytes; batch
-mode did not beat one process per file in the export case here, and its journal writes are a likely
-reason.
-
-The peak memory figure is the resident-set high-water mark of the Python process (VmHWM). It is
-the same for 1 MiB and 100 MiB, which is what bounded streaming should look like. It does not
-include the `aegisfs` client process.
+Transfer timings and peak memory, measured on one laptop with a small emulated HDFS, are in
+[benchmarks](../benchmarks.md#optional-integrations).
