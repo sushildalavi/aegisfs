@@ -20,7 +20,9 @@ say()  { printf "\n\033[1;36m== %s ==\033[0m\n" "$1"; }
 why()  { printf "  \033[2m%s\033[0m\n" "$1"; }
 ok()   { printf "  \033[32m[ok]\033[0m %s\n" "$1"; CHECKS+=("ok|$1"); }
 bad()  { printf "  \033[31m[FAIL]\033[0m %s\n" "$1"; FAILED=1; CHECKS+=("FAIL|$1"); }
-cleanup(){ "$CLUSTER" stop >/dev/null 2>&1 || true; pkill -9 -f "aegisfs serve" 2>/dev/null || true; rm -rf "$TMP" "$ROOT/run"; }
+# A private run directory, so this only ever stops and deletes the cluster it started.
+export AEGISFS_RUN_DIR="$TMP/run"
+cleanup(){ "$CLUSTER" stop >/dev/null 2>&1 || true; rm -rf "$TMP"; }
 trap cleanup EXIT
 
 [ -x "$BIN" ] || { echo "build first: cmake --build build"; exit 1; }
@@ -29,7 +31,6 @@ getfield() { grep "^$1=" <<<"$2" | head -1 | cut -d= -f2; }
 
 say "Launch $N-node cluster"
 why "Each node is a separate OS process with its own data directory, talking over real TCP."
-rm -rf "$ROOT/run"
 "$CLUSTER" start $N >/dev/null
 sleep 5
 MEM=$("$BIN" --entry "$E" listMemIds | wc -l | tr -d ' ')
@@ -86,7 +87,8 @@ K0="$(idx_of "$R0")"; K1="$(idx_of "$R1")"
 "$CLUSTER" kill "$K0" | sed 's/^/     /'
 "$CLUSTER" kill "$K1" | sed 's/^/     /'
 # entry: a node that is not killed
-ENTRY_IDX=$(( (K0+5) % N )); [ "$ENTRY_IDX" = "$K0" ] && ENTRY_IDX=$(((K0+1)%N))
+ENTRY_IDX=$(( (K0+5) % N ))
+while [ "$ENTRY_IDX" = "$K0" ] || [ "$ENTRY_IDX" = "$K1" ]; do ENTRY_IDX=$(( (ENTRY_IDX+1) % N )); done
 GRES="$("$BIN" --entry "127.0.0.1:$((BASE+ENTRY_IDX))" get demo/payload "$TMP/after.bin")"
 if [ "$(getfield status "$GRES")" = "OK" ] && [ "$(sha "$TMP/after.bin")" = "$MERGED_SHA" ]; then
   ok "file still readable from surviving replica after 2 failures, checksum verified"

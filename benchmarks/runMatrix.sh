@@ -14,7 +14,15 @@ REPS=5             # repetitions per data point
 SIZES_KB=(1 1024 10240 102400)   # 1 KiB, 1 MiB, 10 MiB, 100 MiB
 mkdir -p "$RESULTS"
 
-cleanup(){ pkill -9 -f "aegisfs serve" 2>/dev/null || true; rm -rf "$TMP" "$ROOT/run-bench"; }
+NODE_PIDS=()
+# Stops only the nodes this script started.
+stop_cluster(){
+  [ "${#NODE_PIDS[@]}" -eq 0 ] && return 0
+  kill -9 "${NODE_PIDS[@]}" 2>/dev/null
+  wait "${NODE_PIDS[@]}" 2>/dev/null
+  NODE_PIDS=()
+}
+cleanup(){ stop_cluster; rm -rf "$TMP" "$ROOT/run-bench"; }
 trap cleanup EXIT
 [ -x "$BIN" ] || { echo "build first"; exit 1; }
 
@@ -22,7 +30,7 @@ now_ms(){ python3 -c 'import time;print(int(time.time()*1000))'; }
 
 start_cluster() {
   local parallel="$1"
-  pkill -9 -f "aegisfs serve" 2>/dev/null || true
+  stop_cluster
   rm -rf "$ROOT/run-bench"; mkdir -p "$ROOT/run-bench"
   local seed="127.0.0.1:$BASE"
   for i in $(seq 0 $((N-1))); do
@@ -30,6 +38,7 @@ start_cluster() {
     local seeds=(); [ "$i" -ne 0 ] && seeds=(--seeds "$seed")
     "$BIN" serve --data "$data" --host 127.0.0.1 --port "$port" --id "bn$i" \
        --parallel "$parallel" ${seeds[@]+"${seeds[@]}"} > "$ROOT/run-bench/n$i.log" 2>&1 &
+    NODE_PIDS+=($!)
   done
   sleep 4
 }

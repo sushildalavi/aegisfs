@@ -38,11 +38,20 @@ start() {
 
 stop() {
   echo "Stopping cluster..."
+  local pids=() pid
   for pidf in "$RUN"/node*.pid; do
     [ -e "$pidf" ] || continue
-    local pid; pid="$(cat "$pidf")"
-    if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null || true; fi
+    pid="$(cat "$pidf")"
+    if kill -0 "$pid" 2>/dev/null; then kill "$pid" 2>/dev/null || true; pids+=("$pid"); fi
     rm -f "$pidf"
+  done
+  # Wait for the nodes to exit so their ports are free again, and force any that hang.
+  for pid in ${pids[@]+"${pids[@]}"}; do
+    for _ in $(seq 1 100); do
+      kill -0 "$pid" 2>/dev/null || continue 2
+      sleep 0.1
+    done
+    kill -9 "$pid" 2>/dev/null || true
   done
   echo "Stopped."
 }

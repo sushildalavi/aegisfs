@@ -7,15 +7,16 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/scripts/devCreds.sh"
 BIN="${AEGISFS_BIN:-$ROOT/build/aegisfs}"
 BASE="${AEGISFS_BASE_PORT:-9500}"
-RUN="$ROOT/run"
 TMP="$(mktemp -d)"
+# A private run directory, so this only ever stops and deletes the cluster it started.
+export AEGISFS_RUN_DIR="$TMP/run"
 FAILED=0
 
 pass() { printf '[pass] %s\n' "$1"; }
 fail() { printf '[fail] %s\n' "$1" >&2; FAILED=1; }
 cleanup() {
   AEGISFS_BASE_PORT="$BASE" "$ROOT/scripts/cluster.sh" stop >/dev/null 2>&1 || true
-  rm -rf "$TMP" "$RUN"
+  rm -rf "$TMP"
 }
 trap cleanup EXIT
 
@@ -41,7 +42,6 @@ probe=$?
 field() { printf '%s\n' "$1" | awk -F= -v key="$2" '$1 == key { print $2; exit }'; }
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 
-rm -rf "$RUN"
 AEGISFS_BASE_PORT="$BASE" "$ROOT/scripts/cluster.sh" start 5 >/dev/null
 entry="127.0.0.1:$BASE"
 converged=0

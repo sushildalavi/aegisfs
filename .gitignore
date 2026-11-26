@@ -34,8 +34,12 @@ benchmarks/_tmp/
 
 # Secrets (never commit)
 .env
+.env.*
+!.env.example
 *.pem
 *.key
+*.p12
+*.pass
 id_rsa*
 
 # Benchmark cluster runtime
@@ -43,9 +47,16 @@ run-bench/
 
 # Local working notes
 CLAUDE.md
+AGENTS.md
 context.d
 buildStatus.json
+
+# Throwaway credentials and integration state
 .dev/
 .dev-compose/
+.aegisfs-index-spool/
+
+# Python
 __pycache__/
 .venv*/
+.ruff_cache/

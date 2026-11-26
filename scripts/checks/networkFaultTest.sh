@@ -13,7 +13,7 @@ AEGISFS_DEV_DIR="$AEGISFS_CREDS_DIR" \
   "$ROOT/scripts/devCreds.sh" >/dev/null
 
 FILES=(-f deploy/docker/compose.yaml -f deploy/docker/compose.faults.yaml)
-NETWORK=aegisfs_aegis
+NETWORK="${COMPOSE_PROJECT_NAME:-aegisfs}_aegis"
 NODES=(node0 node1 node2 node3 node4 node5 node6 node7 node8 node9)
 
 cleanup() { docker compose "${FILES[@]}" down -v >/dev/null 2>&1 || true; }
