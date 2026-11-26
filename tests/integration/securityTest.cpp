@@ -1,7 +1,11 @@
 #include <gtest/gtest.h>
 
+#include <arpa/inet.h>
 #include <cstdlib>
 #include <filesystem>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
 
 #include "aegisfs/net.hpp"
 #include "support/clusterFixture.hpp"
@@ -128,6 +132,36 @@ TEST(Security, TlsClusterWorksAndRejectsOutsiders) {
   configureTls(wrongCa);
   Client mistrust = cl.client(1, "m");
   EXPECT_FALSE(mistrust.health().ok());
+}
+
+TEST(Security, IdleTlsHandshakeDoesNotStarveAcceptLoop) {
+  TransportReset reset;
+  Pki pki("tls-idle");
+  if (!pki.ok) GTEST_SKIP() << "openssl command line not available";
+  configureTls(tlsFor(pki, /*mutual=*/false));
+  Cluster cl(3);
+  ASSERT_TRUE(cl.awaitConvergence(3));
+
+  std::string host;
+  int port = 0;
+  ASSERT_TRUE(parseEndpoint(cl.addr(0), host, port));
+  int idle = ::socket(AF_INET, SOCK_STREAM, 0);
+  ASSERT_GE(idle, 0);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(static_cast<uint16_t>(port));
+  ASSERT_EQ(::inet_pton(AF_INET, host.c_str(), &address.sin_addr), 1);
+  ASSERT_EQ(::connect(idle, reinterpret_cast<sockaddr*>(&address), sizeof(address)), 0);
+  // Let the listener accept this socket before asking it to serve a valid TLS client.
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+  auto started = std::chrono::steady_clock::now();
+  OpResult health = cl.client(1, "tls-health").health();
+  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::steady_clock::now() - started);
+  ::close(idle);
+  ASSERT_TRUE(health.ok());
+  EXPECT_LT(elapsed.count(), 2500);
 }
 
 TEST(Security, MutualTlsRejectsClientsWithoutACertificate) {

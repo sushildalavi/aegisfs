@@ -44,7 +44,13 @@ static std::string sanitize(const std::string& s) {
   for (char c : s) {
     out.push_back((std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') ? c : '_');
   }
-  if (out.size() > 80) out.resize(80);
+  if (out.size() > 80) {
+    // Keep names bounded for filesystem limits, but retain uniqueness when operation ids share
+    // a long prefix. Truncation alone lets a later immutable segment overwrite an earlier one.
+    const std::string suffix = "-" + toHex(sha256(s)).substr(0, 16);
+    out.resize(80 - suffix.size());
+    out += suffix;
+  }
   return out;
 }
 
@@ -243,7 +249,7 @@ void Node::hReplicate(Conn& c, Fields& h, uint64_t plen, bool isBase) {
       if (!isOk(discard)) return;
       bool same = committed.kind == seg.kind && committed.clientId == seg.clientId &&
                   committed.clientSeq == seg.clientSeq &&
-                  committed.lamportTs == seg.lamportTs && committed.size == seg.size &&
+                  committed.size == seg.size &&
                   committed.sha == seg.sha && committed.diskName == seg.diskName;
       repl::sendReply(c, same ? Status::Ok : Status::ChecksumMismatch);
       return;
@@ -566,6 +572,17 @@ Status Node::applySegmentLocal(const std::string& fileId, const std::string& fil
       if (s.kind == SegKind::Base && s.opId != seg.opId) return Status::AlreadyExists;
     }
   }
+  if (!have) {
+    m.filename = filename;
+    m.fileId = fileId;
+    m.createOpId = createOp;
+    m.version = 0;
+  }
+  if (!m.addSegment(seg)) {
+    // The operation was checked above, so refusal here means a physical-name collision or a
+    // conflicting second base. Reject it before the storage helper can replace an existing file.
+    return Status::Conflict;
+  }
   if (srcVerified) {
     Status ps = storageEngine->commitSpooledSegment(fileId, seg.diskName, srcPath, keepSource);
     if (!isOk(ps)) return ps;
@@ -585,13 +602,6 @@ Status Node::applySegmentLocal(const std::string& fileId, const std::string& fil
     if (stored != seg.sha) return Status::ChecksumMismatch;
   }
   markScrubbed(fileId, /*overwrite=*/false);
-  if (!have) {
-    m.filename = filename;
-    m.fileId = fileId;
-    m.createOpId = createOp;
-    m.version = 0;
-  }
-  m.addSegment(seg);
   return storageEngine->commitManifest(m);
 }
 
@@ -784,6 +794,7 @@ void Node::hAppend(Conn& c, Fields& h, uint64_t plen) {
   std::vector<RingNode> live;
   Status as = authoritativeManifest(filename, auth, live);
   if (!isOk(as)) { fs::remove(tmp); repl::sendReply(c, as); return; }
+  for (const auto& existing : auth.segments) observeLamport(existing.lamportTs);
 
   // A striped file's base object is an index. Raw bytes appended to it would corrupt it, so the
   // client has to go through the stripe-aware path (which says so with stripeIndex=1).
@@ -1244,19 +1255,17 @@ void Node::reconcilePlacement() {
       if (r.nodeId == membershipTable->selfId()) { ++confirmed; continue; }
       Manifest rm;
       bool have = isOk(repl::fetchManifest(r.address, m.fileId, rm));
-      bool complete = have;
+      bool complete = true;
       for (const auto& seg : m.segments) {
         if (have && rm.hasOp(seg.opId)) continue;
-        complete = false;
         int fd = -1;
         std::function<size_t(char*, size_t)> src;
         std::string path = storageEngine->dataDir() + "/files/" + m.fileId + "/" + seg.diskName;
-        makeFileSource(fd, path, src);
-        if (fd < 0) continue;
+        if (makeFileSource(fd, path, src) == 0) { complete = false; continue; }
         Status rs = repl::replicateSegment(r.address, m.fileId, m.filename, m.createOpId, seg,
                                             seg.size, src, seg.kind == SegKind::Base);
         ::close(fd);
-        if (isOk(rs)) complete = true;
+        if (!isOk(rs)) complete = false;
       }
       if (complete) ++confirmed;
     }

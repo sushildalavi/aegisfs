@@ -10,19 +10,32 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <thread>
+#include <unistd.h>
 
 #include "aegisfs/hash.hpp"
 #include "aegisfs/net.hpp"
 
 namespace aegisfs {
 
+namespace {
+std::string newOperationInstance() {
+  static std::atomic<uint64_t> sequence{0};
+  std::random_device rd;
+  const uint64_t entropy = (static_cast<uint64_t>(rd()) << 32) ^ rd();
+  return std::to_string(::getpid()) + "-" + std::to_string(sequence.fetch_add(1)) + "-" +
+         std::to_string(entropy);
+}
+}  // namespace
+
 // How long a client waits for a node to answer a request once connected.
 static constexpr int kReplyTimeoutMs = 60000;
 
 Client::Client(std::string entryAddr, std::string clientId)
-    : entry(std::move(entryAddr)), clientIdValue(std::move(clientId)) {}
+    : entry(std::move(entryAddr)), clientIdValue(std::move(clientId)),
+      operationInstance(newOperationInstance()) {}
 
 static bool fileSize(const std::string& path, uint64_t& out) {
   struct stat st{};
@@ -47,7 +60,8 @@ OpResult Client::upload(MsgType t, const std::string& localPath, const std::stri
   sz = std::min<uint64_t>(sz - offset, length);
   if (retry.maxAttempts < 1) retry.maxAttempts = 1;
   // A stable operation id makes retries safe even after the first replica committed.
-  const std::string opId = clientIdValue + (opIdPrefix.empty() ? "#op#" : opIdPrefix) +
+  const std::string opId = clientIdValue + "#session#" + operationInstance +
+                           (opIdPrefix.empty() ? "#op#" : opIdPrefix) +
                            std::to_string(++opCounter);
   OpResult last = dialFail();
   for (int attempt = 0; attempt < retry.maxAttempts; ++attempt) {
