@@ -11,7 +11,7 @@ The properties the code is meant to keep, and the tests that check each one. Tes
 | I4 | Nodes with the same membership view compute the same replica set. | `RingTest.AgreementAcrossNodes` |
 | I5 | Only the first `create` of a name succeeds; later ones return `ALREADY_EXISTS`. | `Integration.FirstCreateOnly` |
 | I6 | `append` to a missing file fails and never creates it. | `Integration.AppendMissingFileErrors` |
-| I7 | A client's appends appear in the order it issued them on every replica. Not met across different coordinators, see below. | `ManifestTest.PerClientOrder`, `Integration.RepeatedAppendAccumulates`, `Replication.MultiClientAppendsAllPresentOrdered` |
+| I7 | A client's appends appear in the order it issued them on every replica, including when it changes coordinators. | `ManifestTest.PerClientOrder`, `Integration.RepeatedAppendAccumulates`, `Replication.MultiClientAppendsAllPresentOrdered`, `Replication.AppendsRemainOrderedAcrossCoordinators` |
 | I8 | A retried operation (same op id) is applied at most once. | `ManifestTest.Idempotent`, `Replication.IdempotentReplay` |
 | I9 | `get` returns the calling client's own acknowledged appends. | `Replication.ReadYourWrites`, `Replication.WatermarkAdvances` |
 | I10 | Segment checksums are verified on write, read and replication. | `StorageFixture.ChecksumRoundTrip`, `StorageFixture.RejectsWrongChecksum`, `Integration.CreateGetByteIdentical` |
@@ -58,8 +58,9 @@ Not covered by any test today:
 These cases break, or weaken, a property above. No test in the repository covers them. They are
 described in the [README](../README.md#known-limitations).
 
-- I7: consecutive appends from one client through different coordinators can be stored out of order.
-- I8: a new `Client` that reuses an earlier client id has its first appends treated as replays.
-- I8: a `create` retried through a non-primary coordinator can report `CHECKSUM_MISMATCH`.
-- Immutable segments: operation ids that share their first 80 characters map to one segment file.
-- I14: hand-off can delete a copy after an earlier segment push to the new replica failed.
+- I7: appends from different clients are not linearizable; their deterministic Lamport order is not
+  wall-clock order.
+- Handoff and repair are asynchronous, so a placement change can be temporarily under-replicated
+  while reconciliation is still running.
+- There is no dedicated failure-injection regression for a hand-off interrupted by a segment transfer
+  failure.

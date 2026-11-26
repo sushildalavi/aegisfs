@@ -54,8 +54,8 @@ when one is given. `--host` has to be an IPv4 address: any other value binds eve
 | `--indirect-probes` | 3 | helpers asked before suspecting a peer |
 | `--scrub-interval-ms` | 300000 | full re-hash period; 0 re-hashes on every maintenance cycle |
 
-The probe defaults suit loopback. The Compose cluster uses 1000 ms and 6000 ms, because a probe that
-includes a TLS handshake sometimes exceeded the defaults and got healthy nodes declared failed.
+The probe defaults suit loopback. The Compose cluster uses 1000 ms and 6000 ms to allow for container
+and fault-test scheduling.
 
 ### Credentials
 
@@ -146,7 +146,7 @@ source and import `extensions/metrics/grafana/dashboard.json`.
 | `NETWORK_ERROR cannot reach entry node` | wrong `--entry`, node down, or TLS names do not match | check `scripts/cluster.sh status` and the node log |
 | `UNAUTHORIZED` | token missing or different | use the cluster's token file |
 | `create` returns `DEGRADED` | fewer than three replicas committed | restore nodes and check `ls <name>` |
-| `create` returns `CHECKSUM_MISMATCH` | a retried create after a partial or lost reply, see [Known limitations](../README.md#known-limitations) | check `ls <name>`; the file may already exist |
+| `create` returns `CHECKSUM_MISMATCH` | a replica rejected bytes or metadata that do not match its committed operation | inspect the node log and `ls <name>`; do not assume the create was committed |
 | `get` returns `STALE` | no replica has this client's latest write yet | retry |
 | `merge` or `append` returns `CONFLICT` | two replicas hold different base segments | compare with `getFromReplica` and repair by hand |
 | a node fails to start | port in use, or unreadable certificate files | find the process holding the port |

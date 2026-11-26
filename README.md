@@ -148,26 +148,13 @@ raw data and further results are in [docs/benchmarks.md](docs/benchmarks.md).
 
 Correctness:
 
-- A client's appends can be stored out of order if consecutive appends go through different
-  coordinators. A node that is not a replica may hold a lower Lamport clock and does not advance it
-  from the file's manifest. Using one entry node avoids this while that node keeps running; its clock
-  starts again from zero after a restart.
-- A `create` that is retried after a `DEGRADED` or lost reply can report `CHECKSUM_MISMATCH` when the
-  coordinator is not the file's primary, although the first attempt stored the file.
-- Operation ids come from the client id and a per-object counter. A new `Client` that reuses an
-  earlier id has its first appends discarded as replays while reporting `OK`. The CLI uses a
-  process-based id; library users must make ids unique.
-- Segment file names keep only the first 80 characters of an operation id. With a client id of about
-  that length or more, a second append overwrites the first one's segment while reporting `OK`, and
-  the file can no longer be read.
-- During hand-off, a node decides that a new replica is complete from the last segment it pushed, so
-  an earlier failed push does not stop it from deleting its copy. Anti-entropy can recover the
-  segment only if another replica has it.
+- Appends from different clients are ordered by Lamport timestamp and a deterministic tie-break;
+  this is not wall-clock order or linearizability. Repair and hand-off remain asynchronous.
 
 Security (details in [SECURITY.md](SECURITY.md)):
 
-- The TLS handshake runs on the accept thread without a timeout, so one idle TCP connection stops a
-  node from accepting others.
+- TLS handshakes are performed on the accept thread and bounded by a one-second socket timeout. An
+  idle connection can still occupy that thread briefly, but cannot block acceptance indefinitely.
 - One shared token grants every operation. Data is not encrypted at rest.
 
 Scope and scale:

@@ -22,10 +22,9 @@ Cluster:
 
 - One shared token grants every operation on every file, including node-to-node operations. There
   are no users or per-file permissions.
-- The TLS handshake runs on the node's accept thread with no timeout. A client that opens a TCP
-  connection and sends nothing stops the node from accepting other connections, and this needs no
-  credentials. An outbound dial to a peer that accepts TCP but never completes the handshake can
-  block the same way.
+- TLS handshakes run synchronously on the node's accept thread and use a one-second socket timeout.
+  An unauthenticated client can therefore occupy that thread briefly, but an idle connection cannot
+  block acceptance indefinitely. Outbound TLS handshakes are bounded by the dial timeout.
 - Headers of up to 16 MiB are read before the token is checked, and an authenticated request can ask
   the node to allocate up to the 8 GiB payload limit. There is no rate limiting or connection quota.
 - `--host` accepts only an IPv4 address. Any other value, such as a host name, binds all interfaces.
