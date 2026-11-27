@@ -1,23 +1,23 @@
 # Cassandra metadata index
 
-An optional index of what AegisFS reports about its files, kept in Apache Cassandra. It lets you
+An optional index of what aegisfs reports about its files, kept in Apache Cassandra. It lets you
 look a file up by name, list a name prefix, find striped files, and see which entries look stale,
-without asking every storage node. AegisFS does not need it: the storage nodes, the client, the
+without asking every storage node. aegisfs does not need it: the storage nodes, the client, the
 gateway and the demo never read or write Cassandra, and everything here is in a separate package
 (`extensions/integrations/aegisfsIntegrations/cassandra`).
 
-**The index is an observation, not the authority.** Each entry says "at `observed_at`, AegisFS
-reported this". AegisFS decides what a file contains and whether it is healthy. Every query result
-is labelled that way, and if AegisFS reports a failure (a checksum mismatch, a missing file) the
+**The index is an observation, not the authority.** Each entry says "at `observed_at`, aegisfs
+reported this". aegisfs decides what a file contains and whether it is healthy. Every query result
+is labelled that way, and if aegisfs reports a failure (a checksum mismatch, a missing file) the
 index never overrides it.
 
 ## What it stores
 
-Only what AegisFS can actually tell the indexer. Anything it cannot tell is `null`, not a guess.
+Only what aegisfs can actually tell the indexer. Anything it cannot tell is `null`, not a guess.
 
 | Field | Source | Notes |
 |---|---|---|
-| `name`, `file_id`, `version` | `listStore` | `version` is AegisFS's own file version. |
+| `name`, `file_id`, `version` | `listStore` | `version` is aegisfs's own file version. |
 | `stored_size` | `listStore` | Size of the stored object. For a striped file this is the small index object, not the file. |
 | `size`, `size_basis` | see below | Logical size, only when known. |
 | `striped`, `striped_basis` | chunk files seen, or a read | `null` when neither is known. |
@@ -26,10 +26,10 @@ Only what AegisFS can actually tell the indexer. Anything it cannot tell is `nul
 | `verify_state` | indexer | `verified`, `unverified`, `skipped_too_large`, `failed`. |
 | `replicas`, `replicas_source`, `replicas_observed_at` | `listStore` or `ls` | Map of node address to "holds the file". `listStore` only knows nodes that listed the file; `ls` also reports designated replicas that do not hold it. |
 | `status`, `status_reason` | indexer | `indexed`, `incomplete`, `stale`. |
-| `observed_at`, `source` | indexer | When AegisFS was looked at, and by what (`reconcile`, `index --name`, `hook:create`, ...). |
+| `observed_at`, `source` | indexer | When aegisfs was looked at, and by what (`reconcile`, `index --name`, `hook:create`, ...). |
 
-AegisFS does not report a checksum, so the index has none until a file is read. A file that is
-deleted does not exist as a concept in AegisFS (there is no delete operation), so there is no
+aegisfs does not report a checksum, so the index has none until a file is read. A file that is
+deleted does not exist as a concept in aegisfs (there is no delete operation), so there is no
 "deleted" state: `stale` means "not listed by any node in the latest complete scan".
 
 ### Size and striped files
@@ -85,7 +85,7 @@ errors. Add a new migration instead of editing an old one. Statements must be sa
 ## Ordering and idempotency
 
 An observation replaces the stored row only if it is not older than it, where "older" means a lower
-`version`, or the same `version` with an earlier `observed_at`. The AegisFS version always wins:
+`version`, or the same `version` with an earlier `observed_at`. The aegisfs version always wins:
 an observation of version 4 that arrives after version 5 is rejected even if its timestamp is later.
 This is implemented as read, merge in Python, then a lightweight transaction:
 `UPDATE ... IF version = <read> AND observed_at = <read>` (or `INSERT ... IF NOT EXISTS`). If another
@@ -120,9 +120,9 @@ matches, so it does not repair them.
 
 Runs `aegisfs members` and `listStore` on every alive node, and compares the result with the index:
 
-- files AegisFS lists that the index lacks are created; files whose version, stored size, size,
+- files aegisfs lists that the index lacks are created; files whose version, stored size, size,
   striped flag, status or replica count differ are updated; matching files are left alone;
-- files in the index that AegisFS no longer lists are marked `stale`, never dropped;
+- files in the index that aegisfs no longer lists are marked `stale`, never dropped;
 - if some nodes did not answer, a missing file cannot be told from one on the silent nodes, so it
   is marked `incomplete` ("not listed, but some nodes did not answer the scan") instead of `stale`,
   and files under their expected replica count are `incomplete`;
@@ -134,7 +134,7 @@ new, has a new version, or has no checksum for its current version, hashes the r
 checks the hash against the one the client printed, and records `sha256`, `verified_at` and
 `verified_size`. If the version changed while the file was being read, the checksum is discarded
 and `verify_state=failed`. Files larger than `--max-bytes` are skipped
-(`verify_state=skipped_too_large`); the size compared is what AegisFS lists (the sum of chunk sizes
+(`verify_state=skipped_too_large`); the size compared is what aegisfs lists (the sum of chunk sizes
 for a striped file). The exit code is 1 if any observation was invalid or any read failed.
 
 The report counts: `scanned_files`, `created`, `updated`, `unchanged`, `marked_stale`,
@@ -152,16 +152,16 @@ is down the observation is queued and the command still exits 0 with `outcome=sp
 ### Retry queue
 
 If Cassandra cannot be reached, the work is appended to a spool directory (`spool_dir`) and the
-AegisFS operation that caused it is unaffected, because the indexer only reads from AegisFS and
-nothing in AegisFS calls it.
+aegisfs operation that caused it is unaffected, because the indexer only reads from aegisfs and
+nothing in aegisfs calls it.
 
 - `pending.jsonl`: one JSON event per line, written with one append and `fsync` under a file lock.
   A crash can leave one torn last line, which is moved to `rejected.jsonl` on the next drain.
 - Events are either a full `observation`, or a `touch` ("this file was changed"), which the drain
-  resolves by looking the file up in AegisFS and recording what it sees at that time.
+  resolves by looking the file up in aegisfs and recording what it sees at that time.
 - `cassandra index --drain` replays the queue. If Cassandra is unavailable it stops and keeps
   everything not yet applied. An event that can never succeed (invalid observation, or a touch
-  for a file AegisFS did not list in 5 attempts) goes to `rejected.jsonl` with the reason. A batch
+  for a file aegisfs did not list in 5 attempts) goes to `rejected.jsonl` with the reason. A batch
   left by a drain that was killed is picked up by the next drain. Replays are idempotent.
 - `cassandra index --watch SECONDS [--reconcile-every SECONDS]` loops: replay the queue, and
   reconcile on a timer. This is what the `cassandra-indexer` Compose service runs.
@@ -177,12 +177,12 @@ from aegisfsIntegrations.cassandra import observe
 observe("create", "reports/2026/q1.csv", spool_dir="/var/lib/aegisfs-index/spool")
 ```
 
-For code that calls AegisFS (for example the gateway). It only appends a `touch` event to the local
+For code that calls aegisfs (for example the gateway). It only appends a `touch` event to the local
 spool and returns `True` (queued) or `False`. It does not use the network, does not wait for
-Cassandra or AegisFS, and never raises. The REST gateway calls it after a successful `PUT` or `POST`
+Cassandra or aegisfs, and never raises. The REST gateway calls it after a successful `PUT` or `POST`
 when `AEGISFS_INT_CASSANDRA_SPOOL_DIR` is set, and does nothing otherwise; a failure in the hook is
 ignored and cannot change the reply to the client. Files written directly with the `aegisfs` CLI do not
-go through the gateway, so only a reconcile finds those. Metadata always comes from AegisFS at drain
+go through the gateway, so only a reconcile finds those. Metadata always comes from aegisfs at drain
 time, never from the caller, so the hook cannot put wrong values in the index.
 
 ## Queries
@@ -201,10 +201,10 @@ All take `--contact-points`, `--port`, `--keyspace` and `--spool-dir` as overrid
 
 Every result carries `index: {authoritative: false, observed_at, note}`.
 
-`--confirm` (on `find --name` and `show`) asks AegisFS now and compares version, file id, stored size
+`--confirm` (on `find --name` and `show`) asks aegisfs now and compares version, file id, stored size
 and the set of replicas holding the file, printing every difference. With `--read` it also reads the
 file and compares the hash with the recorded checksum, when the version is unchanged. The exit code
-is 1 on any disagreement. If AegisFS reports an error (cannot be reached, cannot read, checksum
+is 1 on any disagreement. If aegisfs reports an error (cannot be reached, cannot read, checksum
 mismatch), that is returned as `aegisfs_error` and the text says the entry does not override it.
 
 ## Configuration
@@ -240,7 +240,7 @@ JSON file (`--config` or `AEGISFS_INTEGRATIONS_CONFIG`, section `cassandra`), th
 The defaults are safe for a real cluster except `replication_factor=1`, which exists so the
 single-node development container works. For a real cluster use at least `SimpleStrategy` with
 factor 3 or `NetworkTopologyStrategy` with per-datacenter factors, and set TLS and credentials.
-The AegisFS side is configured by the shared `aegisfs` settings (`AEGISFS_INT_AEGISFS_ENTRY`,
+The aegisfs side is configured by the shared `aegisfs` settings (`AEGISFS_INT_AEGISFS_ENTRY`,
 `AEGISFS_INT_AEGISFS_BIN`, and the `AEGISFS_TLS_*` / `AEGISFS_TOKEN_FILE` variables the `aegisfs`
 client reads).
 
@@ -251,8 +251,8 @@ client reads).
 | Cassandra down, `index --name` | queued, exit 0, `outcome=spooled` |
 | Cassandra down, `index --reconcile` / `--drain` / queries | exit 3 `unavailable`; the queue is untouched |
 | Cassandra fails part way through a reconcile | the remaining work is queued (`spooled` in the report) |
-| AegisFS unreachable during a reconcile | the command fails before writing anything; no entry is marked stale |
-| some AegisFS nodes unreachable | missing files become `incomplete`, not `stale` |
+| aegisfs unreachable during a reconcile | the command fails before writing anything; no entry is marked stale |
+| some aegisfs nodes unreachable | missing files become `incomplete`, not `stale` |
 | wrong password, or a TLS certificate that does not verify | exit 3 with a message that names the user or the certificate problem and never the password. Nothing is queued: a bad setting is not an outage. The client never falls back to plaintext. |
 | invalid observation | rejected (never retried), counted as `invalid` |
 | keyspace missing or schema older than the code | clear error asking for `cassandra migrate` |
@@ -291,8 +291,8 @@ docker compose -p aegis-cass -f deploy/docker/compose.yaml -f deploy/docker/comp
   --profile cassandra up -d cassandra cassandra-init
 ```
 
-The indexer service reaches AegisFS at `node0:9100` with the TLS CA and token from
-`${AEGISFS_CREDS_DIR:-.dev}`; it needs the core AegisFS stack running to do anything useful, and
+The indexer service reaches aegisfs at `node0:9100` with the TLS CA and token from
+`${AEGISFS_CREDS_DIR:-.dev}`; it needs the core aegisfs stack running to do anything useful, and
 keeps retrying until it is. The plain `cassandra` service has no TLS and no login; see Limitations. The `cassandra-secure` service (see Tests below) is for testing TLS and login.
 
 ## Tests
@@ -304,13 +304,13 @@ tests/integrations/cassandra/runLive.sh secure     # TLS + password container on
 ```
 
 Unit tests (`testCassandraModel/Store/Spool/Schema/Indexer.py`) use an in-memory back end and a fake
-AegisFS and need nothing running. `testCassandraLive.py` uses the real Cassandra container and a real
-process-local AegisFS cluster; it skips with a message if they are not reachable, and fails instead
+aegisfs and need nothing running. `testCassandraLive.py` uses the real Cassandra container and a real
+process-local aegisfs cluster; it skips with a message if they are not reachable, and fails instead
 if `AEGISFS_INT_CASSANDRA_LIVE=1`. It covers migrations, round trips, repeated and out-of-order events
 (including concurrent ones), invalid input, reconcile of files created with the `aegisfs` CLI
 (including a striped file and checksum verification against a locally computed SHA-256), appends,
 files removed from every node's disk, `--confirm` disagreement, stopping and restarting the Cassandra
-container with work queued, AegisFS `create`/`get` while Cassandra is stopped, and a 3,000-entry
+container with work queued, aegisfs `create`/`get` while Cassandra is stopped, and a 3,000-entry
 inventory.
 
 ### Secure variant (TLS and password login)
@@ -344,9 +344,9 @@ CSV in `benchmarks/integrations/cassandra/`. Results and their conditions are in
 
 ## Limitations
 
-- It indexes what `listStore` and `ls` report. It has no checksum from AegisFS; checksums exist only
+- It indexes what `listStore` and `ls` report. It has no checksum from aegisfs; checksums exist only
   where the indexer read the whole file, and reading costs a full download.
-- The index lags AegisFS. Between reconciles an entry can be old; `observed_at` says how old, and
+- The index lags aegisfs. Between reconciles an entry can be old; `observed_at` says how old, and
   `--confirm` checks live.
 - Logical size of a striped file is unknown until it is read. `size_basis=listStore_no_chunks` is a
   listing-based assumption (see above).

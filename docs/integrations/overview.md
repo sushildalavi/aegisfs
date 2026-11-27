@@ -1,6 +1,6 @@
 # Optional integrations
 
-Two tools connect AegisFS to systems people already run: a Cassandra index of file metadata and a
+Two tools connect aegisfs to systems people already run: a Cassandra index of file metadata and a
 connector that copies files to and from HDFS. Neither is part of the storage engine. No C++ code
 calls either one, and the cluster behaves the same without them. The only C++ support they needed is
 the read-only `members` command.
@@ -16,7 +16,7 @@ retries and striping behave as they do for any other client. They never read seg
 
 ```
         +-------------------------+
-        |   AegisFS storage nodes |   source of truth
+        |   aegisfs storage nodes |   source of truth
         +------------+------------+
                      |  aegisfs client
           +----------+-----------+
@@ -26,7 +26,7 @@ retries and striping behave as they do for any other client. They never read seg
       Cassandra            WebHDFS (HDFS)
 ```
 
-**Cassandra** records what AegisFS reported about a file, with the time it was observed. It is not
+**Cassandra** records what aegisfs reported about a file, with the time it was observed. It is not
 authoritative. The REST gateway can queue "this file changed" events in a local spool, and
 `index --reconcile` scans the nodes, which also finds files written directly with the CLI. If
 Cassandra is down, work waits in the spool.
@@ -53,8 +53,8 @@ The connection options are described in [cassandra.md](cassandra.md#configuratio
 | Claim | Check |
 |---|---|
 | A plain `docker compose up` starts only the core services | `scripts/integrations/checkProfiles.sh` |
-| AegisFS reads and writes keep working while Cassandra is stopped | `testCassandraLive.py` |
-| AegisFS reads and writes keep working while HDFS is unreachable | `tests/integrations/hdfs/testLive.py` |
+| aegisfs reads and writes keep working while Cassandra is stopped | `testCassandraLive.py` |
+| aegisfs reads and writes keep working while HDFS is unreachable | `tests/integrations/hdfs/testLive.py` |
 | A missing driver or service disables only its own area, which exits with code 3 | `testCli.py` and the area unit tests |
 
 ## Tests

@@ -18,16 +18,17 @@ failed create can leave orphan chunks.
 
 ## Consistency under partition
 
-Writes report `OK` only when all `rf` replicas have committed, and `DEGRADED` with a count
-otherwise. Reads that cannot satisfy the client's watermark return `STALE`. The alternative was an
-always-writable design with hinted handoff and quorum reads. Read-your-writes and survival of two
-failures are easier to state and test this way. A `DEGRADED` write has still been stored on some
+A write's first attempt reports `OK` only when all `rf` replicas have committed, and `DEGRADED` with a
+count otherwise (a retried write can report `OK` with fewer, see
+[Known limitations](../README.md#known-limitations)). Reads that cannot satisfy the client's
+watermark return `STALE`. The alternative was an always-writable design with hinted handoff and
+quorum reads. Read-your-writes and survival of two failures are easier to state and test this way. A `DEGRADED` write has still been stored on some
 replicas and will spread to the others through repair, so it is not rolled back.
 
 ## Lamport order instead of consensus
 
 Segments are ordered by Lamport timestamp with a deterministic tie-break, so replicas converge
-without a consensus round per append. The order is not wall-clock order, and AegisFS makes no
+without a consensus round per append. The order is not wall-clock order, and aegisfs makes no
 linearizability claim. The current coordinator logic also leaves a gap in per-client ordering, listed
 under [Known limitations](../README.md#known-limitations).
 

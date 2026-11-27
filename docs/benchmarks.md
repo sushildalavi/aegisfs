@@ -115,13 +115,13 @@ The threads share one Python process and driver session, so the interpreter limi
 | Nothing changed | 1.7 s | 0.6 s | 1.9 s |
 | One file changed | 1.1 s | 0.7 s | 5.6 s |
 
-The reconcile figures use an in-memory stand-in for the AegisFS inventory, so they measure the index
+The reconcile figures use an in-memory stand-in for the aegisfs inventory, so they measure the index
 side only.
 
 ### HDFS transfers
 
 `apache/hadoop:3.4.1` with one NameNode and two DataNodes (replication 2), run under amd64 emulation
-on Apple silicon, and three AegisFS nodes with TLS, all in Docker on the same laptop. Each transfer
+on Apple silicon, and three aegisfs nodes with TLS, all in Docker on the same laptop. Each transfer
 is a separate `aegisfs-integrations` process, including the read-back and rename. The 1 MiB and
 10 MiB rows have 5 samples, the 100 MiB rows 3, and the small-file rows 5 runs of 30 files.
 
@@ -144,7 +144,7 @@ copy of the file and an import two.
 
 For the same files, native `aegisfs create` and `get` took 0.41 s and 0.62 s at 100 MiB, 83 ms and
 85 ms at 10 MiB, and 40 ms and 42 ms at 1 MiB. The comparison is not like for like: an export reads
-the file from AegisFS, uploads it, reads it back from HDFS to hash it and renames it, and an import
+the file from aegisfs, uploads it, reads it back from HDFS to hash it and renames it, and an import
 mirrors that.
 
 ## Limits of these results

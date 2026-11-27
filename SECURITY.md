@@ -1,6 +1,6 @@
 # Security policy
 
-AegisFS is a personal project and has not been hardened for untrusted networks. Do not expose it to
+aegisfs is a personal project and has not been hardened for untrusted networks. Do not expose it to
 the public internet.
 
 ## What is protected

@@ -1,6 +1,6 @@
 # Architecture
 
-AegisFS is one C++20 binary. `aegisfs serve` runs a storage node and every other subcommand is a
+aegisfs is one C++20 binary. `aegisfs serve` runs a storage node and every other subcommand is a
 client. There is no leader and no metadata server: each node keeps its own membership table, derives
 placement from it, and coordinates whichever requests clients send to it.
 

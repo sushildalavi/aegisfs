@@ -1,6 +1,6 @@
-# AegisFS
+# aegisfs
 
-AegisFS is a distributed file system written in C++20. It keeps three copies of each file on three
+aegisfs is a distributed file system written in C++20. It keeps three copies of each file on three
 nodes, lets any node coordinate any request, and has no leader and no metadata server. One binary,
 `aegisfs`, is both the storage node and the client.
 
@@ -32,8 +32,9 @@ flowchart LR
   listed in a checksummed manifest. Both are written to a staging directory, fsynced and renamed into
   place; recovery removes whatever a crash left uncommitted.
 - **Writes.** The node the client contacts spools and hashes the upload and sends it to the
-  replicas. `create` and `append` answer `OK` only when all three have committed, and `DEGRADED` with
-  the count otherwise. Retries reuse the operation id, which a node applies at most once.
+  replicas. A first attempt of `create` or `append` answers `OK` only when all three have committed,
+  and `DEGRADED` with the count otherwise; a retry can answer `OK` with fewer (see
+  [Known limitations](#known-limitations)). Retries reuse the operation id, which a node applies at most once.
 - **Reads.** `get` is served only by a replica that has the writes this client has had acknowledged,
   and answers `STALE` otherwise. `getQuorum` reads from a majority.
 - **Ordering.** Appends are ordered by Lamport timestamp with a deterministic tie-break, so replicas
@@ -101,7 +102,7 @@ success and nonzero otherwise, usually the numeric status.
 | `shell`, `help`, `version` | interactive prompt, usage, version |
 
 `--stripe-mib N` sets the striping threshold (0 turns it off). File names are relative, may contain
-`/`, and may not contain `.` or `..` components or control characters. AegisFS has no delete or
+`/`, and may not contain `.` or `..` components or control characters. aegisfs has no delete or
 rename operation.
 
 Node flags, credentials, Docker Compose, the REST gateway and the Prometheus exporter are covered in
@@ -163,6 +164,11 @@ Correctness:
 - During hand-off, a node decides that a new replica is complete from the last segment it pushed, so
   an earlier failed push does not stop it from deleting its copy. Anti-entropy can recover the
   segment only if another replica has it.
+- The client retries a `DEGRADED` write, and the retry can answer `OK` although only one replica
+  holds an append. A later `get` by the same client can then omit that acknowledged append.
+- An append retried while the first replica is unreachable gets a second Lamport time. With another
+  append in between, replicas can store the two in different orders, and `merge` then returns
+  `CONFLICT`.
 
 Security (details in [SECURITY.md](SECURITY.md)):
 
