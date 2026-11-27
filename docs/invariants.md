@@ -13,7 +13,7 @@ The properties the code is meant to keep, and the tests that check each one. Tes
 | I6 | `append` to a missing file fails and never creates it. | `Integration.AppendMissingFileErrors` |
 | I7 | A client's appends appear in the order it issued them on every replica, including when it changes coordinators. | `ManifestTest.PerClientOrder`, `Integration.RepeatedAppendAccumulates`, `Replication.MultiClientAppendsAllPresentOrdered`, `Replication.AppendsRemainOrderedAcrossCoordinators` |
 | I8 | A retried operation (same op id) is applied at most once. | `ManifestTest.Idempotent`, `Replication.IdempotentReplay` |
-| I9 | `get` returns the calling client's own acknowledged appends. | `Replication.ReadYourWrites`, `Replication.WatermarkAdvances` |
+| I9 | `get` returns the calling client's own acknowledged appends. Not met after some partial failures, see the README's known limitations. | `Replication.ReadYourWrites`, `Replication.WatermarkAdvances` |
 | I10 | Segment checksums are verified on write, read and replication. | `StorageFixture.ChecksumRoundTrip`, `StorageFixture.RejectsWrongChecksum`, `Integration.CreateGetByteIdentical` |
 | I11 | A crash between writing a segment and committing its manifest leaves no torn file. | `StorageFixture.CrashRecoveryDropsOrphanSegment` |
 | I12 | After a successful `merge` on a quiet cluster, all replicas hold identical bytes. | `Replication.MergeMakesReplicasIdentical` |
